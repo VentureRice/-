@@ -1,0 +1,470 @@
+---
+title: "米汶权＋TASK8"
+author: "Venture"
+date: "2019/8/6"
+output: html_document
+---
+#加载所需要的包，并读入处理好的数据
+```{r,include = FALSE}
+library(data.table)
+library(vcd)
+library(pROC)
+library(rpart)
+#install.packages("rattle")
+library(rattle)
+library(magrittr)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(openxlsx)
+library(ggplot2)
+library(ggpubr)
+library(corrplot)
+library(psych)
+#取消科学计数
+options(scipen=100)
+```
+
+```{r}
+#读取数据
+data_soccer1 = read.csv("~/Desktop/data_soccer0.csv")
+#读取球队排名
+rank = read.xlsx("~/Desktop/FinalProject/联赛排名.xlsx")
+rank = select(rank, "名次","俱乐部")
+colnames(rank) = c("名次","所属球队")
+#将球队排名并入数据集
+data_soccer0 = merge(data_soccer1,rank,by="所属球队",all.x=T,all.y=F)
+#选取进行分析的列
+data_soccer = select(data_soccer0,colnames(data_soccer1)[1:39],"名次","身价")
+```
+
+
+
+#描述分析
+
+绘制身价的分布直方图
+
+```{r warning=FALSE,message = FALSE}
+ggplot(data_soccer)+
+  geom_histogram(aes(x=身价),fill="gold",bins=25)+
+  theme_bw(base_family = "SimSun")+
+  scale_x_log10()+#对x轴进行对数变换
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  ylab("频数")+#添加坐标轴标签
+  xlab("身价（单位：万英镑）")
+#查看身价的基本信息
+summary(data_soccer$身价)
+```
+
+#不同联赛身价对比箱线图
+```{r message=FALSE, warning=FALSE}
+ggplot(data_soccer)+
+  geom_boxplot(aes(x=reorder(联赛,X=身价,FUN=mean),y=身价),fill=c(rep("grey",4),"gold"),varwidth = T)+
+  theme_bw(base_family = "SimSun")+
+  scale_y_log10()+#对y轴进行对数变换
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("联赛")+#添加坐标轴标签
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))#设置图片大小
+
+```
+
+
+#不同联赛的身价对比
+```{r message=FALSE, warning=FALSE}
+#计算不同联赛身价的均值
+data_league_g=group_by(data_soccer,联赛)
+data_league=summarise(data_league_g,sum=sum(身价),mean=mean(身价))
+#绘制不同联赛总身价的柱状图
+p1=ggplot(data_league)+
+  geom_bar(aes(x=reorder(联赛,X=sum),y=sum),stat = "identity",fill=c(rep("grey",4),"gold"))+
+  geom_text(aes(x=reorder(联赛,X=sum),y=sum,label=round(sum,2),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("联赛")+
+  ylab("总身价（单位：万英镑）")+
+  ggtitle("球员总身价")+
+  theme(plot.title=element_text(hjust=0.5,size=8))
+#绘制不同联赛身价的均值柱状图
+p2=ggplot(data_league)+
+  geom_bar(aes(x=reorder(联赛,X=mean),y=mean),stat = "identity",fill=c(rep("grey",4),"gold"))+
+  geom_text(aes(x=reorder(联赛,X=mean),y=mean,label=round(mean,2),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("联赛")+
+  ylab("平均身价（单位：万英镑）")+
+  ggtitle("球员平均身价")+
+  theme(plot.title=element_text(hjust=0.5,size=8))
+#排版
+ggarrange(p1,p2,ncol=2,nrow=1)
+```
+
+```{r echo=FALSE}
+#读取网上爬取的欧盟国家列表
+euro_list=read.xlsx("~/Desktop/FinalProject/欧盟列表.xlsx")
+nation_list=euro_list$国籍
+
+#判断球员是否为欧盟球员
+data_soccer$是否为欧盟="非欧盟"
+for (i in 1:nrow(data_soccer)) {
+  for (j in 1:nrow(euro_list)) {
+    if(is.na(str_extract(data_soccer$国籍[i],euro_list[j,1]))==F){
+      data_soccer$是否为欧盟[i]="欧盟"
+    }
+  }
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+#绘制不同联赛欧盟与非欧盟球员的对比箱线图
+ggplot(data_soccer)+
+  geom_boxplot(aes(x=reorder(联赛,X=身价,FUN=mean),y=身价,fill=是否为欧盟),varwidth = T)+#绘制箱线图
+  theme_bw(base_family = "SimSun")+#设置字体
+  labs(fill = "是否为欧盟")+#设置图例
+  scale_fill_manual(values=c("grey","gold"))+#填充颜色
+  scale_y_log10()+#对y轴坐标变换
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("是否为欧盟球员")+#添加坐标轴标签
+  ylab("身价（单位：万英镑）")
+```
+
+
+#分析球员年龄对于身价的影响
+```{r message=FALSE, warning=FALSE}
+#将球员生日转化为日期格式
+data_soccer$生日=as.Date(data_soccer$生日)
+#计算球员年龄
+data_soccer$Age=round(as.numeric(difftime(as.Date("2019-07-01"),data_soccer$生日,units = "days")/365),0)
+#将年龄划分区间
+data_soccer$Age_tag=data_soccer$Age
+data_soccer[which(data_soccer$Age<=20),]$Age_tag="20岁及\n以下球员"
+data_soccer[which(data_soccer$Age>=35),]$Age_tag="35岁及\n以上球员"
+data_age_g=group_by(data_soccer,Age_tag)
+#计算各个区间的频数和身价均值
+data_age=na.omit(summarise(data_age_g,mean=mean(身价),count=n()))
+
+#添加年龄段标签
+data_soccer[which(data_soccer$Age<=20),]$Age_tag="(0,20]"
+data_soccer[which(data_soccer$Age>=35),]$Age_tag="(35,40]"
+data_soccer[which(data_soccer$Age<=23&data_soccer$Age>20),]$Age_tag="(20,23]"
+data_soccer[which(data_soccer$Age<=25&data_soccer$Age>23),]$Age_tag="(23,25]"
+data_soccer[which(data_soccer$Age<=28&data_soccer$Age>25),]$Age_tag="(25,28]"
+data_soccer[which(data_soccer$Age<=30&data_soccer$Age>28),]$Age_tag="(28,30]"
+data_soccer[which(data_soccer$Age<=35&data_soccer$Age>30),]$Age_tag="(30,35]"
+#绘制各年龄段身价箱线图
+ggplot(data_soccer[which(is.na(data_soccer$Age_tag)==F),])+
+  geom_boxplot(aes(x=Age_tag,y=身价),varwidth = T,fill=c(rep("grey",3),rep("gold",1),rep("grey",3)))+
+  theme_bw(base_family = "SimSun")+
+  scale_y_log10()+#对y轴坐标变换
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("年龄")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))
+```
+
+
+#合同剩余时间对于身价的影响
+```{r message=FALSE, warning=FALSE}
+#将合同到期时间转化为时间格式
+data_soccer$合同截止期=as.Date(data_soccer$合同截止期)
+#计算剩余时间
+data_soccer$Year=-round(as.numeric(difftime(as.Date("2019-07-01"),data_soccer$合同截止期,units = "days")/365),0)
+#贴标签自由球员和5年以上
+data_soccer$Year_tag=data_soccer$Year
+data_soccer[which(data_soccer$Year<=0),]$Year_tag="自由球员"
+data_soccer[which(data_soccer$Year>=5),]$Year_tag="5年及以上"
+#计算不同剩余合同时间的身价均值
+data_Year_g=group_by(data_soccer,Year_tag)
+data_Year=na.omit(summarise(data_Year_g,mean=mean(身价),count=n()))
+ggplot(data_Year)+
+  geom_bar(aes(x=reorder(Year_tag,mean),y=mean),stat = "identity",fill=c(rep("grey",5),rep("gold",1)))+
+  geom_text(aes(x=Year_tag,y=mean,label=round(mean,0),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+#设置字体
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("距离合同到期年数")+#添加坐标轴信息
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))#设置图片大小
+#绘制箱线图
+ggplot(data_soccer[which(is.na(data_soccer$Year_tag)==F),])+
+  geom_boxplot(aes(x=reorder(Year_tag,身价),y=身价),varwidth = T,fill=c(rep("grey",5),rep("gold",1)))+
+  theme_bw(base_family = "SimSun")+#设置字体
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("距离合同到期年数")+#添加坐标轴信息
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))#设置图片大小
+```
+
+
+#不同位置对于球员身价的影响
+```{r message=FALSE, warning=FALSE}
+data_soccer2=data_soccer[which(data_soccer$位置!="主教练"),]
+#绘制箱线图
+ggplot(data_soccer2)+
+  geom_boxplot(aes(x=reorder(位置,X=身价),y=身价),varwidth = T,fill=c(rep("grey",3),"gold"))+
+  scale_y_log10()+#对数变换
+  theme_bw(base_family = "SimSun")+#设置字体
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("球员位置")+#设置坐标轴标签
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))
+#计算个位置身价均值、最大值
+data_pos_g=group_by(data_soccer2,位置)
+data_position=summarise(data_pos_g,mean=mean(身价,na.rm = T),max=max(身价,na.rm = T),name=paste0(`球员`[which(`身价`==max(`身价`,na.rm = T))],collapse = "\n"))
+#绘制柱状图
+ggplot(data_position)+
+  theme_bw(base_family = "SimSun")+#设置字体
+  geom_bar(aes(x=reorder(位置,max),y=max),stat = "identity",fill=c(rep("grey",3),"gold"))+
+  geom_text(aes(x=位置,y=max,label=name),family="SimSun",size=2.5,position = position_stack(vjust = 0.5))+#添加文字标签
+  geom_text(aes(x=位置,y=max,label=paste0(max,"万英镑"),vjust=-0.5),family="SimSun",size=2.5)+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))+#设置图片大小
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("球员位置")+#添加坐标轴信息
+  ylab("最高身价（单位：万英镑）")
+```
+
+#不同惯用脚对于身价的影响
+```{r message=FALSE, warning=FALSE}
+#筛选出没有记录惯用脚的球员
+data_foot=data_soccer[which(is.na(data_soccer$惯用脚)==F),]
+#绘制分组箱线图
+ggplot(data_foot)+
+  geom_boxplot(aes(x=reorder(惯用脚,身价),y=身价),fill=c(rep("grey",2),"gold"),varwidth = T)+
+  scale_y_log10()+#对y轴坐标变换
+  theme_bw(base_family = "SimSun")+#设置字体
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("惯用脚")+#设置坐标轴
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))#设置图片大小
+#计算不同惯用脚球员的身价
+data_foot_s=data_foot%>%group_by(惯用脚)%>%summarise(mean=mean(身价,na.rm = T))
+#绘制均值柱状图
+ggplot(data_foot_s)+
+  geom_bar(aes(x=reorder(惯用脚,mean),y=mean),stat = "identity",fill=c(rep("grey",2),rep("gold",1)))+
+  geom_text(aes(x=惯用脚,y=mean,label=round(mean,0),vjust=-0.5),size=3)+#添加数字标签
+  theme_bw(base_family = "SimSun")+#设置字体
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("惯用脚")+#添加坐标轴标签
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))#设置图片大小
+
+```
+
+#球队排名对于身价的影响
+```{r message=FALSE, warning=FALSE}
+data_soccer$名次 = as.numeric(as.character(data_soccer$名次))
+data_soccer$rank_tag = "[1,25]"
+data_soccer[which(data_soccer$名次<=50&data_soccer$名次>25),]$rank_tag = "(25,50]"
+data_soccer[which(data_soccer$名次<=75&data_soccer$名次>50),]$rank_tag = "(50,75]"
+data_soccer[which(data_soccer$名次<=100&data_soccer$名次>75),]$rank_tag = "(75,100]"
+data_soccer[which(data_soccer$名次<=125&data_soccer$名次>100),]$rank_tag = "(100,125]"
+data_soccer[which(data_soccer$名次<=150&data_soccer$名次>125),]$rank_tag = "(125,150]"
+data_soccer[which(data_soccer$名次>150),]$rank_tag = "(150,200]"
+
+
+ggplot(data_soccer[which(is.na(data_soccer$rank_tag)==F & data_soccer$名次<150),])+
+  geom_boxplot(aes(x = factor(rank_tag,levels = c("[1,25]","(25,50]","(50,75]","(75,100]","(100,125]","(125,150]","(150,200]")),y=身价),fill=c(rep("gold",1),rep("grey",5)))+
+  theme_bw(base_family = "SimSun")+
+  scale_y_log10()+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("俱乐部世界排名")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))
+ggplot(data_soccer)+
+  geom_point(aes(x = 名次,y=身价))+
+  theme_bw(base_family = "SimSun")+
+  xlab("球队世界排名")+
+  ylab("身价（万英镑）")+
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+```
+#比赛数据的主成分
+```{r message=FALSE, warning=FALSE}
+#提取需要计算主成分的数据
+data_ability=select(data_soccer,"球员","射门","射正","进球.点.","偷球","关键传球","带球摆脱","助攻","越位","被侵犯","分钟.球","直塞","犯规","分钟.助攻","入球转化率","最佳","解围","拦截","总传球","封堵","头球","铲断","出场时间", "长传","传球成功率","身价" )
+#提取数字
+data_ability$入球转化率=as.numeric(str_extract(data_ability$入球转化率,"\\d+"))/100
+data_ability$`进球.点.`=as.numeric(str_extract(data_ability$`进球.点.`,"\\d+"))
+data_ability2 = data_ability
+#给数据的列重新命名
+colnames(data_ability2) = c("球员","射门","射正","进球","偷球","关键传球","带球摆脱","助攻","越位","被侵犯","分钟/球","直塞","犯规","分钟/助攻","入球转化率","最佳","解围","拦截","总传球","封堵","头球","铲断","出场时间", "长传","传球成功率","身价")
+data_ability[,2:26]=apply(data_ability[,-1],2,function(x) as.numeric(x))
+data_ability2[,2:26]=apply(data_ability2[,-1],2,function(x) as.numeric(x))
+#绘制相关系数图
+r=cor(data_ability[,2:26])
+r2=cor(data_ability2[,2:26])
+par(family="SimSun") #设置字体
+corrplot(r2,tl.col = "black",tl.cex = 0.6)
+```
+
+#提取主成分
+```{r message=FALSE, warning=FALSE}
+data_com=data_ability[,2:25]
+data_com=apply(data_com, 2, function(x) log10(x+1))
+data_com_r=cor(data_com)
+#计算主成分
+fa_fit=fa(data_com_r,nfactors = 2,rotate = "varimax",fm="pa")
+pca = principal(data_com_r,nfactors = 3,rotate = "varimax")
+#崖底碎石图
+fa.parallel(data_com_r, n.obs = 112, fa = "both", n.iter = 100)
+#计算主成分得分
+data_ability$PCA1=round(as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,1])),0)
+data_ability$PCA2=round(as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,2])),0)
+
+#write.csv(round(fa_fit$loadings,2),"~/Desktop/fa_fit.csv",fileEncoding = "GBK")
+
+```
+
+#主成分得分与球员能力的关系
+```{r message=FALSE, warning=FALSE}
+#计算主成分得分区间身价均值
+data_pca1=data_ability%>%group_by(PCA1)%>%summarise(mean=mean(身价,na.rm = T))
+data_pca2=data_ability%>%group_by(PCA2)%>%summarise(mean=mean(身价,na.rm = T))
+#主成分1
+ggplot(data_pca1)+
+  geom_bar(aes(x=factor(PCA1),y=mean),fill=c(rep("grey",20),rep("gold",3)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  xlab("主成分1得分")+#添加坐标轴标签
+  ylab("平均身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+#设置图片大小
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))
+#主成分2
+ggplot(data_pca2)+
+  geom_bar(aes(x=factor(PCA2),y=mean),fill=c(rep("grey",18),rep("gold",3)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+#设置图片大小
+  xlab("主成分2得分")+#添加坐标轴标签
+  ylab("平均身价（单位：万英镑）")
+```
+
+#建模分析
+```{r message=FALSE, warning=FALSE}
+#数据预处理
+data_soccer$ `年龄` = data_soccer$Age
+data_soccer$Year[data_soccer$Year>5] = 5
+data_soccer$ `合同剩余时间` = data_soccer$Year
+data_ability$身价 = NULL
+data_ability$PCA1=as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,1]))
+data_ability$PCA2=as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,2]))
+data_ability2 = select(data_ability,"球员","PCA1","PCA2","进球.点.","助攻")
+data_soccer2 = select(data_soccer, "球员","惯用脚","是否为欧盟","年龄","合同剩余时间","位置","联赛","名次","身价")
+
+data_lm = merge(data_ability2,data_soccer2,by="球员",all.x = F,all.y = F)
+#去除年龄异常值
+data_lm = data_lm[which(data_lm$年龄<50),]
+data_lm = unique(data_lm)
+data_lm = na.omit(data_lm)
+```
+```{r}
+#设置基准组
+#设置默认选取最后一个水平作为虚拟变量的基准组
+options(contrasts = c("contr.SAS", "contr.helmert"))
+#双脚为基准组
+data_lm$惯用脚 = factor(data_lm$惯用脚,levels = c("左脚","右脚","双脚"))
+#非欧盟为基准组
+data_lm$是否为欧盟 = factor(data_lm$是否为欧盟,levels = c("欧盟","非欧盟"))
+#前锋为基准组
+data_lm$位置 = factor(data_lm$位置,levels = c("中场","守门员","后卫","前锋"))
+#英超为基准组
+data_lm$联赛 = factor(data_lm$联赛,levels = c("德甲","西甲","意甲","法甲","英超"))
+```
+
+#回归建模
+```{r message=FALSE, warning=FALSE}
+#回归建模
+fit_lm = lm(log(身价+1)~PCA1+PCA2+I((年龄-28)^2)+惯用脚+是否为欧盟+合同剩余时间+位置+联赛+`进球.点.`+助攻+名次+是否为欧盟:联赛,data_lm[,-1])
+fit_lm0 = summary(fit_lm)
+fit_AIC = step(fit_lm,trace = F)
+#AIC变量选择
+fit_AIC0 = summary(fit_AIC)
+data_lm$pre = exp(predict(fit_lm))
+#绘制模型诊断图
+par(family = "STKaiti",mfcol=c(2,2))
+plot(fit_AIC)
+```
+#将预估身价与德转身价进行对比
+```{r}
+data_lm$per = data_lm$pre/data_lm$身价
+```
+
+#绘制回归系数柱状图
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+#去掉截距项
+AIC_coe = as.data.frame(fit_AIC0$coefficients)[-1,]
+#显著／不显著
+AIC_coe$sign = "显著"
+AIC_coe[which(AIC_coe$`Pr(>|t|)`>0.05),]$sign = "不显著"
+rownames(AIC_coe) = c("PCA1","PCA2","(年龄-28)2","合同剩余\n时间","位置\n中场","位置\n守门员","位置\n后卫","联赛\n德甲","联赛\n西甲","联赛\n意甲","联赛\n法甲","进球","世界\n排名")
+AIC_coe$order = c(1,2,5,13,6,7,8,9,10,11,12,3,14)
+#绘制回归系数柱状图
+ggplot(AIC_coe)+
+  geom_bar(aes(x = reorder(rownames(AIC_coe),order),y = Estimate,fill = factor(sign)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("grey","gold"))+#设置颜色
+  xlab("参数名称")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  geom_text(aes(x = rownames(AIC_coe), 
+                y = Estimate,
+                label = round(Estimate,3)), 
+            size=3,
+            position = position_stack(vjust = 0.5))
+AIC_coe$per = exp(AIC_coe$Estimate)
+
+```
+```{r}
+high = data_lm[data_lm$身价>2000,]
+high = high[order(high$per,decreasing = T),][1:50,]
+write.csv(high,"~/Desktop/人才计划/high_list.csv",fileEncoding = "GBK",row.names = F)
+```
+```{r}
+low = data_lm[data_lm$身价>2000,]
+low = low[order(low$per,decreasing = F),][1:50,]
+write.csv(low,"~/Desktop/人才计划/low_list.csv",fileEncoding = "GBK",row.names = F)
+```
