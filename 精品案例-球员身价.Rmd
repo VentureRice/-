@@ -1,0 +1,531 @@
+---
+title: "精品案例：五大联赛球员身价分析"
+author: "狗熊会"
+date: "2020/1/6"
+output: html_document
+---
+
+案例背景：足球是当今第一运动，它所带来的商业价值巨大。如今足坛天价转会费频出，导致球员身价溢价严重，为中小球队进行转会操作带来了极大的困难。本文将以欧洲五大联赛为例，通过在相关网站上爬取的2018-2019赛季的数据为例，建立回归模型，分析影响球员身价的因素，并找出那些可能高性价比或者有水货嫌疑的球员，为球队经理提供建设性意见。
+
+学习目标：
+
+1. 了解足球比赛数据；
+
+2. 学会对足球比赛数据做描述性分析，并在此基础上进行适当的解读和初步的建模。
+
+变量说明：
+![](变量说明.png)
+
+除以上球员基本信息外，该数据集还包括："射门","射正","直塞","犯规"等24个比赛数据指标。
+
+### 准备工作
+```{r message=FALSE, warning=FALSE}
+# 清理工作环境
+rm(list=ls())
+# 加载所需要的包
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(openxlsx)
+library(ggplot2)
+library(ggpubr)
+library(corrplot)
+library(psych)
+library(randomForest)
+```
+
+```{r include=FALSE}
+Sys.setlocale("LC_ALL", "zh_cn.utf-8")
+# 取消科学计数
+options(scipen=100)
+# 设置路径
+setwd("~/Desktop/soccer/")
+```
+
+
+#### 读入数据
+
+* 找到该数据并读取该数据`data_soccer.csv`，按照以下方式对数据的变量进行命名，存入数据`data_soccer`。
+
+```{r echo=TRUE}
+# 读取数据
+data_soccer <- read.csv("data_soccer.csv")
+# 对列进行命名
+colnames(data_soccer) = c('球员','所属球队','出场（替补）','出场时间','进球（点球）','分钟/球','射门','射正','入球转化率','被侵犯','越位','最佳','生日','惯用脚','国籍','合同截止期','位置','铲断','拦截','解围','偷球','封堵','头球','犯规','总传球','传球成功率','关键传球','助攻','分钟/助攻','长传','直塞','带球摆脱','联赛','名次','身价')
+```
+
+### 任务一：数据处理
+
+#### 1.0 查看数据
+
+* 使用`head()`函数，查看数据的基本情况
+
+```{r include=FALSE}
+head(data_soccer)
+```
+
+#### 1.1 处理球员年龄和合同剩余年份
+
+
+1. 数据集中变量`生日`表示球员的出生日期。使用函数`difftime()`计算球员年龄（该变量采用四舍五入取整），并将该变量命名为`年龄`。
+
+2. 利用`cut()`函数，将年龄按照大小分为以下区间：20岁以下,(20,23],(23,25],(25,28],(28,30],(30,35],(35,40]，并将该变量命名为`年龄区间`.
+
+3. 根据变量`合同截止日期`，计算球员合同剩余年份，转化为数值型，并将大于5年的替代为5年，存入变量`合同剩余时间`。
+
+（均以2019年7月1日来计算时间）
+
+```{r message=FALSE, warning=FALSE}
+# 将球员生日转化为日期格式
+data_soccer$生日 <- as.Date(data_soccer$生日)
+# 计算球员年龄
+data_soccer$年龄 <- round(as.numeric(difftime(as.Date("2019-07-01"),data_soccer$生日,units = "days")/365),0)
+# 将年龄划分区间
+data_soccer$年龄区间 <- cut(data_soccer$年龄,c(0,20,23,25,28,30,35,40))
+
+# 将合同到期时间转化为时间格式
+data_soccer$合同截止期 <- as.Date(data_soccer$合同截止期)
+# 计算剩余时间
+data_soccer$`合同剩余时间` <- -round(as.numeric(difftime(as.Date("2019-07-01"),data_soccer$合同截止期,units = "days")/365),0)
+# 5年以上替换为5年
+data_soccer$`合同剩余时间`[data_soccer$`合同剩余时间`>5] <- 5
+
+```
+
+#### 1.2 球员是否为欧盟球员
+
+* 根据欧盟国家列表（数据`欧盟列表.xlsx`），判断球员是否为欧盟球员（双重国籍球员只要有一个国籍为欧盟国家，则为欧盟球员），结果存入新变量`是否为欧盟`。（提示：本题需要自行编写函数，并利用向量化操作得到新变量）
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# 读取网上爬取的欧盟国家列表
+euro_list <- read.xlsx("欧盟列表.xlsx")
+nation_list <- euro_list$国籍
+
+# 判断球员是否为欧盟球员：分为两类：单国籍和双重国籍
+if_eu = function(x){
+  eu = "非欧盟"
+  if(is.na(str_match(x, "、"))==T){
+    # 单国籍
+    if (x %in% nation_list){eu = "欧盟"}
+  }else{
+    # 双重国籍
+    nations = str_split(x,"、")[[1]]
+    if (nations[1] %in% nation_list|nations[2] %in% nation_list){eu = "欧盟"}
+  }
+  return(eu)
+}
+
+# 增加新的列：是否为欧盟
+data_soccer$是否为欧盟 = data_soccer$国籍%>%
+  lapply(if_eu) %>% unlist()
+
+```
+
+#### 1.3 球员所属球队的世界排名
+
+1. 数据集中变量`名次`表示球员所属球队的世界排名，将该变量中的缺失值和排名大于200的替换为200.
+
+2. 按照区间"(0,25]","(25,50]","(50,75]","(75,100]","(100,125]","(125,150]","(150,200]"对名次划分区间，并存入变量`排名区间`当中
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# 将名次这一变量转换为数值型
+data_soccer$名次 <- as.numeric(as.character(data_soccer$名次))
+# 替换缺失和大于200的
+data_soccer[which(is.na(data_soccer$名次)==T | data_soccer$名次>200),]$名次 <- 200
+# 划分区间
+data_soccer$排名区间 <- cut(data_soccer$名次,c(0,25,50,75,100,125,150,200))
+```
+
+
+#### 1.4 球员比赛数据
+
+1. 将变量`入球转化率`转化为数值型变量；
+
+2. 提取总进球数（即`进球（点球）`中括号外面的数值），并存入新变量`进球`中。
+
+```{r include=FALSE}
+# 提取入球转化率
+data_soccer$`入球转化率`=as.numeric(str_extract(data_soccer$入球转化率,"\\d+"))/100
+# 提取进球数
+data_soccer$`进球`=as.numeric(str_extract(data_soccer$`进球（点球）`,"\\d+"))
+```
+
+完成任务一后，再次查看数据基本情况如下：
+```{r}
+head(data_soccer)
+```
+
+### 任务二：描述分析
+
+#### 2.1 绘制身价的分布直方图
+
+* 绘制变量`身价`的频数分布直方图，并查看`身价`的基本信息，给出相应的解读。
+
+```{r echo=FALSE, warning=FALSE}
+ggplot(data_soccer)+
+  # 填充颜色为金色，柱子个数为25
+  geom_histogram(aes(x=身价),fill="gold",bins=25)+
+  # 设置字体
+  theme_bw(base_family = "SimSun")+
+  # 对x轴进行对数变换
+  scale_x_log10()+
+  # 设置背景
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  # 添加坐标轴标签
+  ylab("频数")+
+  xlab("身价（单位：万英镑）")
+
+#查看身价的基本信息
+summary(data_soccer$身价)
+```
+
+#### 2.2 绘制不同年龄区间球员身价的分组箱线图
+
+* 根据任务一中求得的新变量`年龄区间`，绘制不同年龄区间球员身价的分组箱线图；用不同的宽度代表样本量；并对中位数最高的区间使用不同颜色区分，给出相应的解读。
+
+```{r echo=FALSE, warning=FALSE}
+# 计算各个区间的频数和身价均值
+data_age <- na.omit(data_soccer%>%
+                   group_by(年龄区间)%>%
+                   summarise(mean=mean(身价),count=n()))
+
+# 绘制各年龄段身价箱线图
+ggplot(data_soccer[which(is.na(data_soccer$年龄区间)==F),])+
+  # 绘制分组箱线图，按照年龄大小排序，身价最高的标为金色，其余为灰色
+  geom_boxplot(aes(x=年龄区间,y=身价),varwidth =T,fill=c(rep("grey",3),rep("gold",1),rep("grey",3)))+
+  theme_bw(base_family = "SimSun")+
+  # 对y轴坐标变换
+  scale_y_log10()+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("年龄")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,7),'lines'))
+```
+
+#### 2.3 绘制不同联赛中，欧盟和非欧球员身价的并列箱线图
+
+*  根据任务一中求得的新变量`是否为欧盟`，绘制不同联赛中，欧盟和非欧球员身价的并列箱线图并按照中位数进行排序，给出相应的解读。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 绘制不同联赛欧盟与非欧盟球员的对比箱线图
+ggplot(data_soccer)+
+  # 绘制分组箱线图（x轴为五大联赛，颜色区分欧盟和非欧盟）
+  geom_boxplot(aes(x=reorder(联赛,X=身价,FUN=mean),y=身价,fill=是否为欧盟),varwidth = T)+
+  # 设置字体
+  theme_bw(base_family = "SimSun")+
+  # 设置图例
+  labs(fill = "是否为欧盟")+
+  # 填充颜色
+  scale_fill_manual(values=c("grey","gold"))+
+  # 对y轴坐标变换
+  scale_y_log10()+
+  # 设置背景
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  # 添加坐标轴标签
+  xlab("是否为欧盟球员")+
+  ylab("身价（单位：万英镑）")
+```
+
+
+#### 2.4 不同联赛的球员身价
+
+* 计算各个联赛球员身价总值和均值，绘制柱状图并排序；使用不同颜色标记数值最高的联赛；利用geom_text()函数将数值标记在柱状图当中。
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 计算不同联赛身价的均值
+data_league <- data_soccer%>%
+  group_by(联赛)%>%
+  summarise(sum=sum(身价),mean=mean(身价))
+# 绘制不同联赛总身价的柱状图
+p1 <- ggplot(data_league)+
+  geom_bar(aes(x=reorder(联赛,X=sum),y=sum),stat = "identity",fill=c(rep("grey",4),"gold"))+
+  # 添加数字标签
+  geom_text(aes(x=reorder(联赛,X=sum),y=sum,label=round(sum,2),vjust=-0.5),size=3)+
+  # 设置字体
+  theme_bw(base_family = "SimSun")+
+  # 设置背景
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  # 添加坐标轴信息
+  xlab("联赛")+
+  ylab("总身价（单位：万英镑）")+
+  ggtitle("球员总身价")+
+  theme(plot.title=element_text(hjust=0.5,size=8))
+# 绘制不同联赛身价的均值柱状图
+p2 <- ggplot(data_league)+
+  geom_bar(aes(x=reorder(联赛,X=mean),y=mean),stat = "identity",fill=c(rep("grey",4),"gold"))+
+  geom_text(aes(x=reorder(联赛,X=mean),y=mean,label=round(mean,2),vjust=-0.5),size=3)+
+  # 设置字体
+  theme_bw(base_family = "SimSun")+
+  # 设置背景
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  # 添加坐标轴信息
+  xlab("联赛")+
+  ylab("平均身价（单位：万英镑）")+
+  # 添加标题
+  ggtitle("球员平均身价")+
+  theme(plot.title=element_text(hjust=0.5,size=8))#设置标题位置
+# 排版
+ggarrange(p1,p2,ncol=2,nrow=1)
+```
+
+
+#### 2.5 绘制球员比赛数据的相关系数图
+
+* 提取球员比赛数据："球员","射门","射正","进球","偷球","关键传球","带球摆脱","助攻","越位","被侵犯","分钟/球","直塞","犯规","分钟/助攻","入球转化率","最佳","解围","拦截","总传球","封堵","头球","铲断","出场时间", "长传","传球成功率","身价"，计算相关系数矩阵，绘制相关系数图，给出相应的解读。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#提取球员比赛数据
+data_ability <- select(data_soccer,"球员","射门","射正","进球","偷球","关键传球","带球摆脱","助攻","越位","被侵犯","分钟/球","直塞","犯规","分钟/助攻","入球转化率","最佳","解围","拦截","总传球","封堵","头球","铲断","出场时间", "长传","传球成功率","身价" )
+
+# 转化为数值型变量
+data_ability[,-1]=apply(data_ability[,-1],2,function(x) as.numeric(x))
+
+# 计算相关系数矩阵
+r <- cor(data_ability[,-1])
+# 绘制相关系数图
+par(family="SimSun") 
+corrplot(r,tl.col = "black",tl.cex = 0.6)
+```
+
+### 任务三：建立线性回归模型
+
+1. 从任务2.5可以看到，24个球员比赛数据指标以及因变量球员身价之间存在一定的相关关系，因此，可以使用一些降维的方法来减少变量个数。接下来，对这些变量进行对数变换，利用主成分分析的方法，对相关系数矩阵提取主成分，并绘制主成分的崖底碎石图；选择合适的主成分个数，将主成分得分分别存入变量`PCA1`,`PCA2`（若提取三个主成分则存入`PCA1`,`PCA2`,`PCA3`）。
+
+2. 尝试对各个主成分进行解释并命名。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 选取需要提取主成分的数据
+data_com=data_ability[,2:25]
+# 对数据进行对数变换
+data_com=apply(data_com, 2, function(x) log10(x+1))
+# 计算相关系数矩阵
+data_com_r=cor(data_com)
+# 计算主成分
+pca_fit=pca(data_com_r,nfactors = 2,rotate = "varimax")
+# 崖底碎石图
+fa.parallel(data_com_r, n.obs = 112, fa = "both", n.iter = 100)
+# 计算主成分
+data_ability$PCA1 <- as.matrix((data_com))%*%(as.vector(pca_fit$loadings[,1]))
+data_ability$PCA2 <- as.matrix((data_com))%*%(as.vector(pca_fit$loadings[,2]))
+
+```
+
+
+3. 对主成分得分划分区间，绘制各个区间对应样本观测的身价均值柱状图，探究主成分得分与球员能力的关系。
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 计算主成分得分区间身价均值
+data_pca1=data_ability%>%group_by(round(PCA1,0))%>%summarise(mean=mean(身价,na.rm = T))
+colnames(data_pca1)[1]="PCA1"
+data_pca2=data_ability%>%group_by(round(PCA2,0))%>%summarise(mean=mean(身价,na.rm = T))
+colnames(data_pca2)[1]="PCA2"
+# 主成分1
+ggplot(data_pca1)+
+  geom_bar(aes(x=factor(PCA1),y=mean),fill=c(rep("grey",20),rep("gold",3)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  # 添加坐标轴标签
+  xlab("主成分1得分")+
+  ylab("平均身价（单位：万英镑）")+
+  # 设置图片大小
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  # 设置背景
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))
+# 主成分2
+ggplot(data_pca2)+
+  geom_bar(aes(x=factor(PCA2),y=mean),fill=c(rep("grey",19),rep("gold",3)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),#设置背景
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  # 设置图片大小
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  # 添加坐标轴标签
+  xlab("主成分2得分")+
+  ylab("平均身价（单位：万英镑）")
+```
+
+
+4. 建立回归模型（对因变量做对数变换），全模型考虑如下变量：
+
+```
+* 惯用脚
+* 是否为欧盟球员
+* 年龄
+* 合同剩余时间
+* 位置
+* 联赛
+* 名次
+* PCA1
+* PCA2
+* 进球
+* 助攻
+```
+
+5. 选择以上变量以及因变量身价存入新数据集`data_lm`当中。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 选择变量PCA1，PCA2，进球，助攻
+data_ability2 = select(data_ability,"球员","PCA1","PCA2","进球","助攻")
+# 选择变量惯用脚，是否为欧盟，年龄，合同剩余时间，位置，联赛，名次，以及因变量身价
+data_soccer2 = select(data_soccer, "球员","惯用脚","是否为欧盟","年龄","合同剩余时间","位置","联赛","名次","身价")
+# 合并变量到数据集data_lm
+data_lm = merge(data_ability2,data_soccer2,by="球员",all.x = F,all.y = F)
+# 去除年龄异常值
+data_lm = data_lm[which(data_lm$年龄<50),]
+# 去掉重复出现的数据
+data_lm = unique(data_lm)
+# 去掉缺失值
+data_lm = na.omit(data_lm)
+```
+
+
+6. 对定性变量设置基准组：
+
+| 变量名       | 基准组   | 
+|:------------:|:--------:|
+|惯用脚|双脚|
+|是否为欧盟|非欧盟|
+|位置|前锋|
+|联赛|英超|
+
+
+```{r echo=FALSE}
+#设置基准组
+#设置默认选取最后一个水平作为虚拟变量的基准组
+options(contrasts = c("contr.SAS", "contr.helmert"))
+#双脚为基准组
+data_lm$惯用脚 = factor(data_lm$惯用脚,levels = c("左脚","右脚","双脚"))
+#非欧盟为基准组
+data_lm$是否为欧盟 = factor(data_lm$是否为欧盟,levels = c("欧盟","非欧盟"))
+#前锋为基准组
+data_lm$位置 = factor(data_lm$位置,levels = c("中场","守门员","后卫","前锋"))
+#英超为基准组
+data_lm$联赛 = factor(data_lm$联赛,levels = c("德甲","西甲","意甲","法甲","英超"))
+```
+
+7. 对于年龄，使用(年龄-28)^2作为变量，并加入联赛与是否为欧盟球员的交互项，其他变量不变，建立线性回归模型，使用AIC准则进行变量选择，汇报模型检验结果。检验结果包括：
+
+```
+* 残差独立性检验
+* 残差正态性检验
+* 同方差检验
+* cook距离检验
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# 建立线性回归建模
+fit_lm = lm(log(身价+1)~PCA1+PCA2+I((年龄-28)^2)+惯用脚+是否为欧盟+合同剩余时间+位置+联赛+进球+助攻+名次+是否为欧盟:联赛,data_lm[,-1])
+# 回归结果
+fit_lm0 = summary(fit_lm)
+# 变量选择
+fit_AIC = step(fit_lm,trace = F)
+# AIC变量选择
+fit_AIC0 = summary(fit_AIC)
+#绘制模型诊断图
+par(mfcol=c(2,2))
+plot(fit_AIC)
+```
+
+
+
+
+
+8. 绘制回归系数柱状图，用不同颜色区分在95%置信水平下是否显著，并按照参数估计值大小顺序排列。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+#去掉截距项
+AIC_coe <- as.data.frame(fit_AIC0$coefficients)[-1,]
+#显著／不显著
+# p<0.05,显著
+AIC_coe$sign <- "显著"
+# p>0.05,显著
+AIC_coe[which(AIC_coe$`Pr(>|t|)`>0.05),]$sign <- "不显著"
+# 重新命名变量，并设置换行
+rownames(AIC_coe) <- c("PCA1","PCA2","(年龄-28)2","合同剩余\n时间","位置\n后卫","位置\n前锋","位置\n守门员","联赛\n德甲","联赛\n法甲","联赛\n西甲","联赛\n意甲","进球","名次")
+
+# 绘制回归系数柱状图
+ggplot(AIC_coe)+
+  # 按照参数估计值从大到小排列
+  geom_bar(aes(x = reorder(rownames(AIC_coe),-Estimate),y = Estimate,fill = factor(sign)),stat = "identity")+
+  # 设置字体
+  theme_bw(base_family = "SimSun")+
+  # 设置图例
+  labs(fill="是否显著")+
+  # 设置颜色
+  scale_fill_manual(values = c("grey","gold"))+
+  # 设置横轴名称
+  xlab("参数名称")+
+  # 设置纵轴名称
+  ylab("参数估计值")+
+  # 设置背景和坐标轴
+  theme(panel.border =
+          element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  # 添加数字标签
+  geom_text(aes(x = rownames(AIC_coe),
+                y = Estimate,
+                label = round(Estimate,2)), 
+            size=3,
+            position = position_stack(vjust = 0.5))
+```
+
+### 任务四：建立随机森林模型（选做）
+
+* 随机森林模型是一种机器学习方法，本任务将基于随机森林算法，计算各个变量的重要性。（提示：利用`randomForest`包拟合随机森林模型）
+
+1. 将数据`data_lm`按照7：3划分训练集和测试集，存入数据`train`,`test`（设置当日日期为随机种子数）。
+
+2. 使用`data_lm`中的全变量在测试集上拟合随机森林模型，并计算测试集上的MSE。
+
+3. 计算变量重要性并绘制变量重要性图，并给出相应的解读。
+
+```{r echo=FALSE}
+# 设置随机种子
+set.seed(106)
+# 随机选取70%行
+p <- sample(1:nrow(data_lm),0.7*nrow(data_lm),replace = F)
+# 训练集
+train <- data_lm[p,]
+# 测试集
+test <- data_lm[-p,]
+```
+
+```{r echo=FALSE}
+# 拟合随机森林模型
+rf_fit <- randomForest(log(身价+1)~PCA1+PCA2+年龄+惯用脚+是否为欧盟+合同剩余时间+位置+联赛+进球+助攻+名次,data = train)
+# 计算测试集上的预测值
+predict_rf <- predict(rf_fit, type='response', newdata = test)
+# 计算MSE
+mse_rf <- sum((predict_rf-test$身价)^2)/nrow(test)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 计算变量重要性
+importance_rf <- importance(rf_fit)
+# 绘制重要性图
+par(family="SimSun")
+varImpPlot(rf_fit)
+```
+
