@@ -1,0 +1,187 @@
+---
+title: "米汶权+TASK3"
+author: "米汶权"
+date: "2019/7/21"
+output: html_document
+---
+
+###加载所需包
+```{r,eval=FALSE}
+library(plyr)
+library(dplyr)
+library(stringr)
+library(openxlsx)
+library(ggplot2)
+
+```
+```{r,include=FALSE}
+library(plyr)
+library(dplyr)
+library(stringr)
+library(openxlsx)
+library(ggplot2)
+```
+
+###读入数据
+```{r}
+###使用openxlsx读入数据
+travel=read.xlsx("~/Desktop/人才计划/travel.xlsx")
+```
+
+
+###任务一
+读入数据，并对数据的列名进行重新选择和命名，展示数据前几行
+```{r}
+###给新的数据框命名列名
+colnames(travel)=c("Product","TravelMethod","Agency","Star","Place","Traffic","Meal","FreeActivitie","Evaluate5","Evaluate4","Evaluate3","EvaluateAll","Sale","Comment","Depart","MinPrice","SunPrice","MonPrice","TuesPrice","WedPrice","ThusPrice","FriPrice","SatPrice","Destination","Routine")
+
+###去除题目中不需要的字段
+travel$Destination=NULL
+travel$Comment=NULL
+travel$Evaluate5=NULL
+travel$Evaluate4=NULL
+travel$Evaluate3=NULL
+travel$MinPrice=NULL
+###去掉“健康医疗”
+travel_dat=travel[-grep("健康医疗",travel$Product),]
+###去掉出发地在国内
+travel_dat=travel_dat[which(travel_dat$Depart!="北京" & travel_dat$Depart!="上海"),]
+###展示前六行数据
+head(travel_dat)
+
+```
+
+读取数据完毕，并按照要求将数据存入travel_dat中。
+该数据有2915个产品，19个变量。
+
+###任务二
+对产品的报价绘制直方图
+```{r,warning = FALSE}
+###构造每天报价的数据框
+travel_price=select(travel_dat,"Product","SunPrice","MonPrice","TuesPrice","WedPrice","ThusPrice","FriPrice","SatPrice")
+
+###提取某字符所在位置
+query_pattern=function(str,pattern,k){
+  a=gregexpr(paste0("[",pattern,"]"),str)[[1]][k]
+  return(a)
+}
+
+###提取价格
+for (j in 2:ncol(travel_price)) {
+  for (i in 1:nrow(travel_price)) {
+    if(substring(travel_price[i,j],1,1)=="¥"){
+      travel_price[i,j]=as.numeric(substring(travel_price[i,j],query_pattern(travel_price[i,j],"¥",1)+1,query_pattern(travel_price[i,j],"起",1)-1))
+    }else{
+      travel_price[i,j]=NA
+    }
+  }
+  travel_price[,j]=as.numeric(travel_price[,j])
+}
+
+###计算平均价格
+travel_price$Price=rowMeans(travel_price[,2:8],na.rm = T)
+travel_dat$Price=travel_price$Price
+
+###绘制直方图
+ggplot(travel_dat)+
+  geom_histogram(aes(x=Price),fill="gold",bins=30)+
+  xlab("产品价格（对数变换）")+
+  ylab("频数")+
+  theme_bw(base_family="SimSun")+###设置背景颜色和字体
+  scale_x_log10(breaks=c(1000, 10000),labels=c("1千","1万"))+###对数变换
+  theme(panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        axis.line=element_line(colour="black"))###设置网格，取消边框
+
+```
+
+做对数变换后产品价格额大致成对称分布，故原始数据呈明显的右偏分布，下四分位数为3078元，上四分位数为6776元，大部分平均价格集中在1千至1万元之间，有300个产品价格缺失。接下来将选取几个变量，来对影响产品价格的因素进行简单分析。
+
+
+###任务三
+将产品按照景点个数进行分组，求出每个分组的平均价格
+```{r,warning=FALSE}
+###提取景点数和经典景点数
+travel_dat$AllPlace=travel_dat$Place
+travel_dat$ClassicPlace=travel_dat$Place
+travel_dat$AllPlace=as.numeric(str_extract(str_extract(travel_dat$AllPlace,"\\d+个景点"),"\\d+"))
+travel_dat$ClassicPlace=as.numeric(str_extract(str_extract(travel_dat$ClassicPlace,"\\d+个经典景点"),"\\d+"))
+
+###将景点数按照区间划分
+travel_dat$AllPlacesGroup=NA
+travel_dat[which(travel_dat$AllPlace<=9),]$AllPlacesGroup="(0,9]"
+travel_dat[which(travel_dat$AllPlace<=16 & travel_dat$AllPlace>9),]$AllPlacesGroup="(9,16]"
+travel_dat[which(travel_dat$AllPlace<=25 & travel_dat$AllPlace>16),]$AllPlacesGroup="(16,25]"
+travel_dat[which(travel_dat$AllPlace<=77& travel_dat$AllPlace>25),]$AllPlacesGroup="(25,77]"
+travel_dat$AllPlacesGroup=factor(travel_dat$AllPlacesGroup,level=c("(0,9]","(9,16]","(16,25]","(25,77]",NA))
+
+###求的各个区间均值
+travel_dat_g=group_by(travel_dat,AllPlacesGroup)
+travel_sum=summarise(travel_dat_g,mean=mean(as.numeric(Price),na.rm = T))
+travel_sum
+```
+产品包含的景点数目是影响产品价格的重要因素。自然，人们希望参加景点更多的产品，所以景点数目越多的产品，产品平均价格也自然越高。景点数在25个至77个的价格最高，平均6981.004元；而景点数在9个以下的平均价格最低，为4203.235元。
+
+###任务四
+将产品按照出发日期进行分类，并求出每个类别产品的平均价格
+```{r}
+###贴Date标签
+travel_price$Date="工作日和周末"
+travel_price[which(is.na(travel_price$SunPrice)==T &
+                     is.na(travel_price$SatPrice)==T),]$Date="仅工作日"
+
+travel_price[which(is.na(travel_price$MonPrice)==T &
+                     is.na(travel_price$TuesPrice)==T &
+                     is.na(travel_price$WedPrice)==T&
+                     is.na(travel_price$ThusPrice)==T &
+                     is.na(travel_price$FriPrice)==T),]$Date="仅周末"
+
+###计算平均价格
+travel_price_g=group_by(travel_price,Date)
+travel_price_s=summarise(travel_price_g,mean=mean(Price,na.rm = T))
+travel_price_s
+```
+出发时间也是影响旅游产品价格的重要因素之一。通过上表可以看到，仅周末出发的产品平均价格高于另外两种，均价6929.399元；而仅工作日出发的产品价格最低，均价为5275.202元。
+
+
+###任务五
+提取产品的钻石等级，并按照等级绘制产品价格的箱线图
+```{r,warning = FALSE}
+travel_dat$Star2=travel_dat$Star
+
+###提取最大钻等级
+for (i in 1:nrow(travel_dat)) {
+  if (is.na(str_extract(travel_dat$Star2[i],"\\d+钻"))==F){
+    travel_dat$Star2[i]=str_replace_all(travel_dat$Star2[i],"3.5钻","-")
+    travel_dat$Star2[i]=str_replace_all(travel_dat$Star2[i],"2.5钻","-")
+    travel_dat$Star2[i]=str_replace_all(travel_dat$Star2[i],"1.5钻","-")
+    travel_dat$Star2[i]=as.character(max(factor(str_extract_all(travel_dat$Star2[i],pattern = "\\d+钻")[[1]],ordered = T,levels = c("2钻","3钻","4钻","5钻"))))
+  }else{
+    travel_dat$Star2[i]="无信息"
+  }
+}###(注：由于所给任务的示例图中没有3.5和2.5钻，故在处理中将他们去掉了)
+
+###筛出缺失值，绘制箱线图
+travel_dat_plot=travel_dat[which(is.na(travel_dat$Price)==F&is.na(travel_dat$Star2)==F),]
+ggplot(travel_dat_plot)+
+  geom_boxplot(aes(x=reorder(Star2,X=Price,FUN=mean),y=Price),
+               fill="#CCFF66",
+               col="#66FF66",
+               varwidth = T)+###绘制箱线图
+  ylab("产品价格（对数变换）")+
+  xlab("")+
+  theme_bw(base_family = "SimSun")+
+  scale_y_log10(breaks = c(2000, 10000),
+                labels=c("2千","1万"))+###设置y轴标签
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_blank())###设置网格，取消坐标轴
+
+```
+
+产品星级也是影响价格的重要因素。在所有等级当中，3钻数目最多；而钻石等级越高，平均价格越高，5钻平均价格明显高于另外四种。
+
+总结以上初步描述分析的结果，影响旅游产品价格的因素可能有产品包含景点数，出发地，出发日期，产品等级等因素，要确定是否受这些因素的影响，还需要进一步建立模型，分析自变量和因变量的相关关系。
+
