@@ -1,0 +1,543 @@
+---
+title: "米汶权＋TASK6"
+author: "Venture"
+date: "2019/7/31"
+output: html_document
+---
+
+#背景介绍
+
+RTB(Real Time Bidding，实时竞拍)是目前一种重要的广告投放方式。当前的各种APP都有许多广告位，等待广告主的投放。对于投放广告的广告主，他们通过竞拍获得广告位，自然希望自己的广告能有更高的点击量。而有哪些因素会影响广告的被点击的可能性呢？本文将从获取的数据入手，分析这一问题。
+
+本数据包括了来自某广告外包承包商(DPS)的4695条观测值，因变量为是否点击(1-点击/0-未点击)，正样本大约占总样本的20%，自变量包括：
+
+1.atype：ADX平台，即广告实时交易平台(Ad Exchange)，是实时广告交易的平台，包括百度等
+
+2.bidf：竞拍低价，竞拍低价为第二竞拍高价加上一个最小货币单位
+
+3.instl：是否为全插屏广告，0-否／1-是
+
+4.isp：手机运营商，包括三大运营商中国移动、中国电信、中国联通等
+
+5.nt：网络状况，指观测数据时该用户的网络状况，包括wifi、4G等
+
+6.mfr：设备制造商，包括众多手机制造商如小米、苹果等
+
+7.period：时段，即广告展示时段，包括上午、下午、晚上
+
+接下来将读取数据，对数据进行描述分析和逻辑回归建模，说明这些因素的影响效果。
+
+
+#加载所需要的包
+```{r}
+#清空工作空间
+rm(list = ls())   
+#取消科学计数法
+options(scipen = 100)
+#加载所需包
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(ggpubr)
+library(pROC)
+```
+
+#读取数据
+```{r}
+rtb = read.csv("~/Desktop/人才计划/TASK6/rtb_exercise.csv",fileEncoding = "UTF-8")
+
+```
+
+#数据预处理
+```{r}
+#将ADX平台编码转化为平台
+rtb = rtb[which(rtb$atype != 21),]#将编码为21的去除
+rtb[which(rtb$atype == 3),]$atype = "Inmobi"
+rtb[which(rtb$atype == 7),]$atype = "Zplay"
+rtb[which(rtb$atype == 8),]$atype = "Baidu"
+rtb[which(rtb$atype == 13),]$atype = "Iflytek"
+```
+
+```{r}
+#将手机运营商编码转换为运营商
+rtb[which(rtb$isp == 0),]$isp = "未知"
+rtb[which(rtb$isp == 1),]$isp = "中国移动"
+rtb[which(rtb$isp == 2),]$isp = "中国联通"
+rtb[which(rtb$isp == 3),]$isp = "中国电信"
+```
+
+```{r}
+#将网络状况编码转化为网络状况
+rtb[which(rtb$nt == 0),]$nt = "未知"
+rtb[which(rtb$nt == 1),]$nt = "WIFI"
+#rtb[which(rtb$nt == 2),]$nt = "2G"
+rtb[which(rtb$nt == 3),]$nt = "3G"
+rtb[which(rtb$nt == 4),]$nt = "4G"
+rtb[which(rtb$nt == 5),]$nt = "5G"
+```
+
+```{r}
+#将dc转化为是否点击
+rtb$dc0 = "点击"
+rtb[which(rtb$dc == 0),]$dc0 = "未点击"
+rtb$dc0 = factor(rtb$dc0, level = c("未点击","点击"))
+rtb$atype = factor(rtb$atype)
+```
+
+#描述分析
+#1.是否点击
+```{r}
+#统计数据中是否点击分别所占次数
+rtb_dc = rtb %>% 
+  group_by(dc0) %>% 
+  summarise(count = length(dc0))
+
+#绘制柱状图
+ggplot(rtb_dc)+
+  geom_bar(aes(x = reorder(dc0,X = -count,FUN = median),#将城市按照工资均值排序
+               y = count,
+               fill = factor(dc0,
+                           levels = c("未点击","点击"))),
+           stat = "identity",position = "dodge")+#position = "dodge"设置为并列柱状图
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  guides(fill = F)+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))+
+  geom_text(aes(x = reorder(dc0,X = -count,FUN = median),
+                y = count,
+                label=round(count,2)),
+            size = 3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+```
+
+解读：在所给数据中，点击大约占20%，未点击占80%，正样本：负样本＝1:4。
+
+#ADX平台编码
+```{r}
+rtb_atype0 = rtb %>% 
+  group_by(atype) %>% 
+  summarise(count0 = length(dc))
+rtb_atype = rtb %>% 
+  group_by(atype, dc0,dc) %>% 
+  summarise(count = length(dc))
+rtb_atype = merge(rtb_atype,rtb_atype0,by = "atype")
+rtb_atype$per = rtb_atype$count/rtb_atype$count0
+  
+ggplot(rtb_atype)+
+  geom_bar(aes(x = reorder(atype, X = -count), y = count, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+ggplot(rtb_atype)+
+  geom_bar(aes(x = reorder(atype, X = -per*dc), y = per, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：对于不同的ADX平台，即实时广告交易平台，Baidu的数量远高于其他三类平台；但是点击占比最高的是Inmobi，达到了21％，该平台成立于印度，是全球最大的独立移动广告网络平台。
+
+#竞标低价
+```{r}
+ggplot(rtb)+
+  geom_boxplot(aes(x = dc0, y = bidf),fill = c("DimGrey","gold"), varwidth = T)+
+  scale_y_log10()+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  guides(fill = F)+#设置图例#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("对数竞标低价")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：被点击的广告竞标低价略高于未被点击的广告，且竞标低价的波动范围更大。
+
+
+#是否全插屏广告
+```{r}
+rtb$instl0 = "全插屏"
+rtb[which(rtb$instl == 0),]$instl0 = "非全插屏"
+
+rtb$instl0 = factor(rtb$instl0, levels = c("非全插屏","全插屏"))
+
+#计算全插屏和非全插屏广告的频数以及点击率
+rtb_instl = rtb %>%group_by(dc, dc0, instl, instl0)%>%summarise(count = length(dc))
+rtb_instl0 = rtb %>%group_by(instl0)%>%summarise(count0 = length(dc))
+rtb_instl = merge(rtb_instl,rtb_instl0,by="instl0")
+#计算点击率
+rtb_instl$per = rtb_instl$count/rtb_instl$count0
+#绘制堆积柱状图
+ggplot(rtb_instl)+
+  geom_bar(aes(x = reorder(instl0, X = -count), y = count, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+
+#绘制棘状图
+ggplot(rtb_instl)+
+  geom_bar(aes(x = reorder(instl0, X = -per*dc), y = per, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：在4695条数据中，非全插屏有4461条，占到了95%；全插屏的广告点击率达到了38%，而非全插屏仅有18%。这说明全插屏广告更容易被用户点击。
+
+#不同手机运营商
+```{r}
+#将手机运营商因子化
+rtb$isp = factor(rtb$isp)
+#计算各个运营商的频数和点击率
+rtb_isp = rtb %>%group_by(dc, dc0, isp)%>%summarise(count = length(dc))
+rtb_isp0 = rtb %>%group_by(isp)%>%summarise(count0 = length(dc))
+rtb_isp = merge(rtb_isp,rtb_isp0,by="isp")
+#计算点击率
+rtb_isp$per = rtb_isp$count/rtb_isp$count0
+#绘制状图
+ggplot(rtb_isp)+
+  geom_bar(aes(x = reorder(isp, X = -count), y = count, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+
+#绘制棘状图
+ggplot(rtb_isp)+
+  geom_bar(aes(x = reorder(isp, X = -per*dc), y = per, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：对于不同的手机运营商，中国移动最多，占63.63%；三大运营商和未知运营商的点击率相差无几，均在20%左右。
+
+#不同网络状况
+```{r}
+#将不同的网络状况因子化
+rtb$nt = factor(rtb$nt)
+#计算不同网络状况的频数和点击率
+rtb_nt = rtb %>%group_by(dc, dc0, nt)%>%summarise(count = length(dc))
+rtb_nt0 = rtb %>%group_by(nt)%>%summarise(count0 = length(dc))
+rtb_nt = merge(rtb_nt,rtb_nt0,by="nt")
+#计算点击率
+rtb_nt$per = rtb_nt$count/rtb_nt$count0
+#绘制柱状图
+ggplot(rtb_nt)+
+  geom_bar(aes(x = reorder(nt, X = -count), y = count, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+
+#绘制棘状图
+ggplot(rtb_nt)+
+  geom_bar(aes(x = reorder(nt, X = -per*dc), y = per, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：使用wifi的观测数据占到了80%；而除了未知网络状况，wifi也是点击率最高的网络状况，点击率达到了19.31%。
+
+#不同设备制造商
+```{r}
+#将不同设备制造商因子化
+rtb$mfr = factor(rtb$mfr)
+#计算各个设备制造商的频数和点击率
+rtb_mfr = rtb %>%group_by(dc, dc0, mfr)%>%summarise(count = length(dc))
+rtb_mfr0 = rtb %>%group_by(mfr)%>%summarise(count0 = length(dc))
+rtb_mfr = merge(rtb_mfr,rtb_mfr0,by="mfr")
+#计算点击率
+rtb_mfr$per = rtb_mfr$count/rtb_mfr$count0
+#绘制柱状图
+ggplot(rtb_mfr)+
+  geom_bar(aes(x = reorder(mfr, X = -count), y = count, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+ggplot(rtb_mfr)+
+  geom_bar(aes(x = reorder(mfr, X = -per*dc), y = per, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：OPPO手机是最多的设备制造商，但是该品牌手机的点击率最低，仅有13.87%；苹果手机的点击率最高，达到了27.10%
+
+#不同时间段
+```{r}
+#将时间段因子化
+rtb$period = factor(rtb$period)
+#计算各个时间段的频数和点击率
+rtb_period = rtb %>%group_by(dc, dc0, period)%>%summarise(count = length(dc))
+rtb_period0 = rtb %>%group_by(period)%>%summarise(count0 = length(dc))
+rtb_period = merge(rtb_period,rtb_period0,by="period")
+#计算点击率
+rtb_period$per = rtb_period$count/rtb_period$count0
+#绘制柱状图
+ggplot(rtb_period)+
+  geom_bar(aes(x = reorder(period, X = -count), y = count, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+ggplot(rtb_period)+
+  geom_bar(aes(x = reorder(period, X = -per*dc), y = per, fill = dc0),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "是否点击")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("是否点击")+#设置横轴名称
+  ylab("频数")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,6,1,6),'lines'))#设置图片大小
+```
+
+解读：下午的点击率最高，达到了20.86%；其次是晚上，达到19.87%；上午的点击率最低，仅有16.73%。
+
+#逻辑回归建模
+将数据因子化，并设置基准组
+```{r}
+rtb0 = select(rtb, "dc","atype","bidf","isp","nt","mfr","period","instl0")
+rtb0$dc = factor(rtb0$dc)
+
+#设置基准组
+rtb0 = rtb0 %>%
+  mutate(dc = relevel(factor(dc), ref = "0"),
+         #bidf0 =relevel(factor(bidf0), ref = "[0,10)"),
+         isp = relevel(factor(isp), ref = "未知"),
+         atype = relevel(factor(atype), ref = "Iflytek"),
+         nt = relevel(factor(nt), ref = "未知"),
+         mfr = relevel(factor(mfr), ref = "其他"),
+         period = relevel(factor(period), ref = "晚上"),
+         instl0 = relevel(factor(instl0), ref = "非全插屏"))
+
+```
+
+#逻辑回归建模
+```{r}
+# 设置随机种子
+set.seed(1234)
+# 将数据集的70%划分为训练集，30%划分为测试集
+rtb0_train = rtb0[sample(nrow(rtb0),0.7*nrow(rtb0)),]
+rtb0_test = rtb0[-sample(nrow(rtb0),0.7*nrow(rtb0)),]
+#计算平均点击率
+ratio_yes = nrow(rtb0[which(rtb0$dc == 1),])/nrow(rtb0)
+glm.fit = glm(dc~.,data = rtb0_train , family = binomial())
+summary(glm.fit)
+```
+
+
+#变量选择
+```{r}
+#利用AIC变量选择
+glm.AIC = step(glm.fit)
+AIC_res = as.data.frame(summary(glm.AIC)$coefficients)[-1,]
+#标注是否显著
+AIC_res$sign = "显著"
+AIC_res[which(AIC_res$`Pr(>|z|)`>0.05),]$sign = "不显著"
+
+rownames(AIC_res) = c("Baidu","Inmobi","Zplay","华为","金立","酷派","魅族","苹果","三星","小米","OPPO","vivo","上午","下午","全插屏")
+```
+
+
+#绘制模型ROC曲线
+```{r}
+#原始模型在测试集上的预测值
+rtb0_test$yhat = predict(glm.fit,newdata = rtb0_test,type = "response")
+#计算混淆矩阵
+rtb0_test$ypre1 = 1 * (rtb0_test$yhat > ratio_yes)
+table(rtb0_test$ypre1,rtb0_test$dc)
+#变量选择后模型在测试集上的预测值
+rtb0_test$yhat2 = predict(glm.AIC,newdata = rtb0_test,type = "response")
+#计算混淆矩阵
+rtb0_test$ypre2 = 1 * (rtb0_test$yhat2 > ratio_yes)
+table(rtb0_test$ypre2,rtb0_test$dc)
+#绘制ROC曲线
+plot.roc(rtb0_test$dc, rtb0_test$yhat, col = "red", lwd = 2, xaxs = "i", yaxs = "i")
+lines.roc(rtb0_test$dc, rtb0_test$yhat2, col = "blue", lwd = 2, xaxs = "i", yaxs = "i")
+#计算AUC值
+auc(rtb0_test$dc, rtb0_test$yhat)
+auc(rtb0_test$dc, rtb0_test$yhat2)
+```
+
+两个模型的AUC均为0.58，两模型的预测精度相差不大，故通过AIC去掉原始模型中的多余变量。
+
+#模型解读
+#分析ADX平台对是否点击的影响
+```{r}
+#分析ADX平台对是否点击的影响
+ggplot(AIC_res[1:3,])+
+  geom_bar(aes(x = reorder(rownames(AIC_res[1:3,]),-Estimate),y = Estimate, fill = factor(sign,levels = c("显著","不显著"))),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold","DimGray"))+#设置颜色
+  xlab("ADX平台")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(AIC_res[1:3,]),-Estimate),
+                y = Estimate,
+                label=round(Estimate,2)),
+            size=3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+```
+
+解读：对于ADX平台，以Iflytek作为基准组；Baidu平台上点击广告的概率最大，是Iflytek平台上的2.01倍（exp(0.70)）。
+
+#分析手机制造商对是否点击的影响
+```{r}
+#分析手机制造商对是否点击的影响
+ggplot(AIC_res[4:12,])+
+  geom_bar(aes(x = reorder(rownames(AIC_res[4:12,]),-Estimate),y = Estimate, fill = factor(sign,levels = c("显著","不显著"))),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold","DimGray"))+#设置颜色
+  xlab("设备制造商")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(AIC_res[4:12,]),-Estimate),
+                y = Estimate,
+                label=round(Estimate,2)),
+            size=3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+
+```
+
+解读：对于不同的设备制造商，以其他作为基准组，苹果和三星的手机点击率显著更高，点击可能性分别是其他品牌的2.77倍和1.51倍;OPPO手机点击可能显著较低，仅有其他品牌的0.59呗。总体可以看到，国产手机的点击可能性较低，如金立、OPPO、华为；而进口手机品牌点击的可能性较高。
+
+#分析时间段和是否全屏对是否点击的影响
+```{r}
+#分析时间段和是否全屏对是否点击的影响
+ggplot(AIC_res[13:15,])+
+  geom_bar(aes(x = reorder(rownames(AIC_res[13:15,]),-Estimate),y = Estimate, fill = factor(sign,levels = c("显著","不显著"))),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold","DimGray"))+#设置颜色
+  xlab("")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(AIC_res[13:15,]),-Estimate),
+                y = Estimate,
+                label=round(Estimate,2)),
+            size=3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+
+```
+
+解读：以非全插屏广告作为基准组，全插屏广告点击的可能性显著高于非全插屏，是非全插屏的2.48倍。对于不同的时间段，下午点击可能性偏高，上午偏低，但是三个时间段并没有显著的区别。
+
+
+#总结
+
+通过描述分析和逻辑回归，本文对于影响是否点击的因素得出了以下结论：
+
+1.对于ADX平台，Baidu平台上点击广告的概率最大，Iflytek最低。
+
+2.对于不同的设备制造商，国产手机的点击可能性较低，如金立、OPPO、华为；而进口手机品牌点击的可能性较高。
+
+3.全插屏的广告点击可能性较大。
+
+4.下午投放的广告点击可能性略高于其他时间段。
+
+因此，对于广告主的广告投放策略，我们建议广告主加大在Baidu平台上，对国产手机的投放，并多使用全插屏广告，集中在下午进行投放，这样可以将点击率最大化。
