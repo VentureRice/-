@@ -1,0 +1,624 @@
+---
+title: "final"
+author: "Venture"
+date: "2019/7/23"
+output: html_document
+---
+
+```{r message=FALSE}
+library(data.table)
+library(vcd)
+library(pROC)
+library(rpart)
+#install.packages("rattle")
+library(rattle)
+library(magrittr)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(openxlsx)
+library(ggplot2)
+library(ggpubr)
+library(corrplot)
+library(psych)
+#write.table(colnames(Ger),"~/Desktop/colnames",fileEncoding = "GBK")
+#colnames=colnames(Ger)
+```
+```{r}
+
+Ger_1=read.xlsx("~/Desktop/FinalProject/德甲进攻.xlsx")
+Ger_1$uniqueid=paste0(Ger_1$球员,Ger_1$所属球队)
+Ger_1$简体名=str_remove_all(Ger_1$简体名,"\\s+")
+Ger_2=read.xlsx("~/Desktop/FinalProject/德甲防守.xlsx")
+Ger_2$uniqueid=paste0(Ger_2$球员,Ger_2$所属球队)
+Ger_3=read.xlsx("~/Desktop/FinalProject/德甲传球.xlsx")
+Ger_3$uniqueid=paste0(Ger_3$球员,Ger_3$所属球队)
+Ger_4=read.xlsx("~/Desktop/FinalProject/德甲位置.xlsx")
+colnames(Ger_4)=c("简体名","位置")
+Ger_4$简体名=str_remove_all(Ger_4$简体名,"\\s+")
+Ger_1=merge(Ger_1,Ger_4,by="简体名",all.x=F,all.y=F)
+Ger_1$球员链接=NULL
+Ger_2$球员=NULL
+Ger_2$排名=NULL
+Ger_2$所属球队=NULL
+Ger_2$`出场(替补)`=NULL
+Ger_2$出场时间=NULL
+Ger_2$`红/黄牌`=NULL
+Ger_2$评分=NULL
+Ger_3$球员=NULL
+Ger_3$排名=NULL
+Ger_3$所属球队=NULL
+Ger_3$`出场(替补)`=NULL
+Ger_3$出场时间=NULL
+Ger_3$评分=NULL
+
+Ger=merge(Ger_1,Ger_2,by="uniqueid",all.x=F,all.y=F)
+Ger=merge(Ger,Ger_3,by="uniqueid",all.x=F,all.y=F)
+Ger$uniqueid=NULL
+Ger$排名=NULL
+Ger$简体名=NULL
+Ger$繁体名=NULL
+Ger$联赛="德甲"
+Ger=unique(Ger)
+
+
+```
+
+```{r}
+Span_1=read.xlsx("~/Desktop/FinalProject/西甲进攻.xlsx")
+Span_1$uniqueid=paste0(Span_1$球员,Span_1$所属球队)
+Span_2=read.xlsx("~/Desktop/FinalProject/西甲防守.xlsx")
+Span_2$uniqueid=paste0(Span_2$球员,Span_2$所属球队)
+Span_3=read.xlsx("~/Desktop/FinalProject/西甲传球.xlsx")
+Span_3$uniqueid=paste0(Span_3$球员,Span_3$所属球队)
+Span_4=read.xlsx("~/Desktop/FinalProject/西甲位置.xlsx")
+Span_1$简体名=str_remove_all(Span_1$简体名,"\\s+")
+colnames(Span_4)=c("简体名","位置")
+Span_4$简体名=str_remove_all(Span_4$简体名,"\\s+")
+Span_1=unique(Span_1)
+Span_1=merge(Span_1,Span_4,by="简体名",all.x=F,all.y=F)
+
+Span_1$球员链接=NULL
+Span_2$球员=NULL
+Span_2$排名=NULL
+Span_2$所属球队=NULL
+Span_2$`出场(替补)`=NULL
+Span_2$出场时间=NULL
+Span_2$`红/黄牌`=NULL
+Span_2$评分=NULL
+Span_3$球员=NULL
+Span_3$排名=NULL
+Span_3$所属球队=NULL
+Span_3$`出场(替补)`=NULL
+Span_3$出场时间=NULL
+Span_3$评分=NULL
+
+Span=merge(Span_1,Span_2,by="uniqueid",all.x=F,all.y=F)
+Span=merge(Span,Span_3,by="uniqueid",all.x=F,all.y=F)
+Span$uniqueid=NULL
+Span$排名=NULL
+Span$简体名=NULL
+Span$繁体名=NULL
+Span$联赛="西甲"
+Span=unique(Span)
+```
+
+```{r}
+Itl_1=read.xlsx("~/Desktop/FinalProject/意甲进攻.xlsx")
+Itl_1$uniqueid=paste0(Itl_1$球员,Itl_1$所属球队)
+Itl_2=read.xlsx("~/Desktop/FinalProject/意甲防守.xlsx")
+Itl_2$uniqueid=paste0(Itl_2$球员,Itl_2$所属球队)
+Itl_3=read.xlsx("~/Desktop/FinalProject/意甲传球.xlsx")
+Itl_3$uniqueid=paste0(Itl_3$球员,Itl_3$所属球队)
+Itl_4=read.xlsx("~/Desktop/FinalProject/意甲位置.xlsx")
+Itl_1$简体名=str_remove_all(Itl_1$简体名,"\\s+")
+colnames(Itl_4)=c("简体名","位置")
+Itl_4$简体名=str_remove_all(Itl_4$简体名,"\\s+")
+Itl_1=merge(Itl_1,Itl_4,by="简体名",all.x=F,all.y=F)
+Itl_1$球员链接=NULL
+Itl_2$球员=NULL
+Itl_2$排名=NULL
+Itl_2$所属球队=NULL
+Itl_2$`出场(替补)`=NULL
+Itl_2$出场时间=NULL
+Itl_2$`红/黄牌`=NULL
+Itl_2$评分=NULL
+Itl_3$球员=NULL
+Itl_3$排名=NULL
+Itl_3$所属球队=NULL
+Itl_3$`出场(替补)`=NULL
+Itl_3$出场时间=NULL
+Itl_3$评分=NULL
+
+Itl=merge(Itl_1,Itl_2,by="uniqueid",all.x=F,all.y=F)
+Itl=merge(Itl,Itl_3,by="uniqueid",all.x=F,all.y=F)
+Itl$uniqueid=NULL
+Itl$排名=NULL
+Itl$简体名=NULL
+Itl$繁体名=NULL
+Itl$联赛="意甲"
+Itl=unique(Itl)
+```
+
+```{r}
+Eng_1=read.xlsx("~/Desktop/FinalProject/英超进攻.xlsx")
+Eng_1$uniqueid=paste0(Eng_1$球员,Eng_1$所属球队)
+Eng_2=read.xlsx("~/Desktop/FinalProject/英超防守.xlsx")
+Eng_2$uniqueid=paste0(Eng_2$球员,Eng_2$所属球队)
+Eng_3=read.xlsx("~/Desktop/FinalProject/英超传球.xlsx")
+Eng_3$uniqueid=paste0(Eng_3$球员,Eng_3$所属球队)
+Eng_4=read.xlsx("~/Desktop/FinalProject/英超位置.xlsx")
+Eng_1$简体名=str_remove_all(Eng_1$简体名,"\\s+")
+colnames(Eng_4)=c("简体名","位置")
+Eng_4$简体名=str_remove_all(Eng_4$简体名,"\\s+")
+Eng_1=merge(Eng_1,Eng_4,by="简体名",all.x=F,all.y=F)
+
+Eng_1$球员链接=NULL
+Eng_2$球员=NULL
+Eng_2$排名=NULL
+Eng_2$所属球队=NULL
+Eng_2$`出场(替补)`=NULL
+Eng_2$出场时间=NULL
+Eng_2$`红/黄牌`=NULL
+Eng_2$评分=NULL
+Eng_3$球员=NULL
+Eng_3$排名=NULL
+Eng_3$所属球队=NULL
+Eng_3$`出场(替补)`=NULL
+Eng_3$出场时间=NULL
+Eng_3$评分=NULL
+
+Eng=merge(Eng_1,Eng_2,by="uniqueid",all.x=F,all.y=F)
+Eng=merge(Eng,Eng_3,by="uniqueid",all.x=F,all.y=F)
+Eng$uniqueid=NULL
+Eng$排名=NULL
+Eng$简体名=NULL
+Eng$繁体名=NULL
+Eng$联赛="英超"
+Eng=select(Eng,colnames(Ger))
+Eng=unique(Eng)
+```
+```{r}
+Fra_1=read.xlsx("~/Desktop/FinalProject/法甲进攻.xlsx")
+Fra_1$uniqueid=paste0(Fra_1$球员,Fra_1$所属球队)
+Fra_2=read.xlsx("~/Desktop/FinalProject/法甲防守.xlsx")
+Fra_2$uniqueid=paste0(Fra_2$球员,Fra_2$所属球队)
+Fra_3=read.xlsx("~/Desktop/FinalProject/法甲传球.xlsx")
+Fra_3$uniqueid=paste0(Fra_3$球员,Fra_3$所属球队)
+Fra_4=read.xlsx("~/Desktop/FinalProject/法甲位置.xlsx")
+Fra_1$简体名=str_remove_all(Fra_1$简体名,"\\s+")
+colnames(Fra_4)=c("简体名","位置")
+Fra_4$简体名=str_remove_all(Fra_4$简体名,"\\s+")
+Fra_1=merge(Fra_1,Fra_4,by="简体名",all.x=F,all.y=F)
+Fra_1$球员链接=NULL
+Fra_2$球员=NULL
+Fra_2$排名=NULL
+Fra_2$所属球队=NULL
+Fra_2$`出场(替补)`=NULL
+Fra_2$出场时间=NULL
+Fra_2$`红/黄牌`=NULL
+Fra_2$评分=NULL
+Fra_3$球员=NULL
+Fra_3$排名=NULL
+Fra_3$所属球队=NULL
+Fra_3$`出场(替补)`=NULL
+Fra_3$出场时间=NULL
+Fra_3$评分=NULL
+
+Fra=merge(Fra_1,Fra_2,by="uniqueid",all.x=F,all.y=F)
+Fra=merge(Fra,Fra_3,by="uniqueid",all.x=F,all.y=F)
+Fra$uniqueid=NULL
+Fra$排名=NULL
+Fra$简体名=NULL
+Fra$繁体名=NULL
+Fra$联赛="法甲"
+
+nrow(Eng_1)+nrow(Ger_1)+nrow(Fra_1)+nrow(Itl_1)+nrow(Span_1)
+
+```
+
+```{r}
+data_soccer=rbind(Ger,Span,Itl,Eng,Fra)
+query_pattern=function(str,pattern,k){
+  a=gregexpr(paste0("[",pattern,"]"),str)[[1]][k]
+  return(a)
+}
+
+
+data_soccer$身价=data_soccer$预计身价
+for (i in 1:length(data_soccer$身价)) {
+  if(is.na(str_extract(data_soccer$身价[i],"\\d+"))==T){
+    data_soccer$身价[i]=NA
+  }else{
+    data_soccer$身价[i]=as.numeric(substring(data_soccer$身价[i],1,query_pattern(data_soccer$身价[i],"万",1)-1))
+  }
+  
+}
+data_soccer$身价=as.numeric(data_soccer$身价)
+data_soccer=data_soccer[which(is.na(data_soccer$身价)==F),]
+
+```
+
+
+```{r}
+ggplot(data_soccer)+
+  geom_histogram(aes(x=身价),fill="gold",bins=25)+
+  theme_bw(base_family = "SimSun")+
+  scale_x_log10()+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  ylab("频数")+
+  xlab("身价（单位：万英镑）")
+
+summary(data_soccer$身价)
+```
+
+```{r}
+ggplot(data_soccer)+
+  geom_boxplot(aes(x=reorder(联赛,X=身价,FUN=mean),y=身价),fill=c(rep("grey",4),"gold"),varwidth = T)+
+  theme_bw(base_family = "SimSun")+
+  #geom_jitter(aes(x=联赛,y=身价),width =0.2,shape = 21,size=0.5)+
+  scale_y_log10()+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("联赛")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))+
+  ggtitle("球员身价箱线图")+
+  theme(plot.title=element_text(hjust=0.5,size=8))
+```
+
+```{r}
+options(scipen=100)
+data_league_g=group_by(data_soccer,联赛)
+data_league=summarise(data_league_g,sum=sum(身价),mean=mean(身价))
+
+p1=ggplot(data_league)+
+  geom_bar(aes(x=reorder(联赛,X=sum),y=sum),stat = "identity",fill=c(rep("grey",4),"gold"))+
+  geom_text(aes(x=reorder(联赛,X=sum),y=sum,label=round(sum,2),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("联赛")+
+  ylab("总身价（单位：万英镑）")+
+  ggtitle("球员总身价")+
+  theme(plot.title=element_text(hjust=0.5,size=8))
+p2=ggplot(data_league)+
+  geom_bar(aes(x=reorder(联赛,X=mean),y=mean),stat = "identity",fill=c(rep("grey",4),"gold"))+
+  geom_text(aes(x=reorder(联赛,X=mean),y=mean,label=round(mean,2),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("联赛")+
+  ylab("平均身价（单位：万英镑）")+
+  ggtitle("球员平均身价")+
+  theme(plot.title=element_text(hjust=0.5,size=8))
+ggarrange(p1,p2,ncol=2,nrow=1)
+```
+
+```{r}
+
+euro_list=read.xlsx("~/Desktop/FinalProject/欧盟列表.xlsx")
+nation_list=euro_list$国籍
+data_soccer$是否为欧盟="非欧盟"
+
+for (i in 1:nrow(data_soccer)) {
+  for (j in 1:nrow(euro_list)) {
+    if(is.na(str_extract(data_soccer$国籍[i],euro_list[j,1]))==F){
+      data_soccer$是否为欧盟[i]="欧盟"
+    }
+  }
+}
+
+
+
+
+
+ggplot(data_soccer)+
+  geom_boxplot(aes(x=reorder(联赛,X=身价,FUN=mean),y=身价,fill=是否为欧盟),varwidth = T)+
+  #geom_jitter(aes(x=联赛,y=身价),width =0.2,shape = 21,size=0.5)+
+  theme_bw(base_family = "SimSun")+
+  scale_fill_manual(values=c("grey","gold"))+
+  scale_y_log10()+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("是否为欧盟球员")+
+  ylab("身价（单位：万英镑）")
+```
+
+```{r}
+data_nation_g=group_by(data_soccer,国籍)
+data_nation=summarise(data_nation_g,mean=mean(身价))
+data_soccer$国籍1=data_soccer$国籍
+data_soccer$国籍2=data_soccer$国籍
+for (i in 1:nrow(data_soccer)) {
+  if(is.na(str_extract(data_soccer$国籍[i],"、"))==F){
+    data_soccer$国籍1[i]=str_split(data_soccer$国籍[i],"[、]")[[1]][1]
+    data_soccer$国籍2[i]=str_split(data_soccer$国籍[i],"[、]")[[1]][2]
+  }else{
+    data_soccer$国籍1[i]=data_soccer$国籍[i]
+    data_soccer$国籍2[i]=NA
+  }
+}
+
+data_country1=select(data_soccer,国籍1,身价)
+data_country2=select(data_soccer,国籍2,身价)
+colnames(data_country2)=colnames(data_country1)
+data_country=rbind(data_country1,data_country2)
+data_country=na.omit(data_country)
+data_country_g=group_by(data_country,国籍1)
+data_country_s=summarise(data_country_g,mean=mean(身价),sum(身价))
+```
+
+```{r}
+data_soccer$生日=as.Date(data_soccer$生日)
+data_soccer$Age=round(as.numeric(difftime(as.Date("2019-07-01"),data_soccer$生日,units = "days")/365),0)
+
+data_soccer$Age_tag=data_soccer$Age
+data_soccer[which(data_soccer$Age<=20),]$Age_tag="20岁及\n以下球员"
+data_soccer[which(data_soccer$Age>=35),]$Age_tag="35岁及\n以上球员"
+data_age_g=group_by(data_soccer,Age_tag)
+data_age=na.omit(summarise(data_age_g,mean=mean(身价),count=n()))
+ggplot(data_age)+
+  geom_bar(aes(x=Age_tag,y=mean),stat = "identity",fill=c(rep("grey",6),rep("gold",3),rep("grey",7)))+
+  geom_text(aes(x=Age_tag,y=mean,label=round(mean,0),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("球员年龄（岁）")+
+  ylab("身价（单位：万英镑）")
+```
+```{r}
+data_soccer$合同截止期=as.Date(data_soccer$合同截止期)
+data_soccer$Year=-round(as.numeric(difftime(as.Date("2019-07-01"),data_soccer$合同截止期,units = "days")/365),0)
+
+data_soccer$Year_tag=data_soccer$Year
+data_soccer[which(data_soccer$Year<=0),]$Year_tag="自由球员"
+data_soccer[which(data_soccer$Year>=5),]$Year_tag="5年及以上"
+
+data_Year_g=group_by(data_soccer,Year_tag)
+data_Year=na.omit(summarise(data_Year_g,mean=mean(身价),count=n()))
+ggplot(data_Year)+
+  geom_bar(aes(x=reorder(Year_tag,mean),y=mean),stat = "identity",fill=c(rep("grey",5),rep("gold",1)))+
+  geom_text(aes(x=Year_tag,y=mean,label=round(mean,0),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("距离合同到期年数")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))
+ggplot(data_soccer[which(is.na(data_soccer$Year_tag)==F),])+
+  geom_boxplot(aes(x=reorder(Year_tag,身价),y=身价),fill=c(rep("grey",5),rep("gold",1)))+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("距离合同到期年数")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))
+```
+
+```{r}
+data_ability=select(data_soccer,"球员","出场时间","进球(点)","分钟/球","射门","射正","入球转化率","被侵犯","越位","铲断","拦截","解围","偷球","封堵","头球","犯规","总传球", "传球成功率","关键传球","助攻","分钟/助攻","长传","直塞","带球摆脱","最佳","身价" )
+
+data_ability$入球转化率=as.numeric(str_extract(data_ability$入球转化率,"\\d+"))/100
+data_ability$`进球(点)`=as.numeric(str_extract(data_ability$`进球(点)`,"\\d+"))
+
+data_ability[,2:26]=apply(data_ability[,-1],2,function(x) as.numeric(x))
+r=cor(data_ability[,2:26])
+par(family="SimSun") 
+corrplot(r,tl.col = "black",tl.cex = 0.6)
+
+colnames(data_soccer)
+summary(data_ability)
+```
+
+```{r}
+data_soccer2=data_soccer[which(data_soccer$位置!="主教练"),]
+ggplot(data_soccer2)+
+  geom_boxplot(aes(x=reorder(位置,X=身价),y=身价),varwidth = T,fill=c(rep("grey",3),"gold"))+
+  #geom_jitter(aes(x=位置,y=身价),width =0.2,shape = 21,size=0.5)+
+  scale_y_log10()+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("球员位置")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))
+data_pos_g=group_by(data_soccer2,位置)
+data_position=summarise(data_pos_g,mean=mean(身价,na.rm = T),max=max(身价,na.rm = T),name=paste0(`球员`[which(`身价`==max(`身价`,na.rm = T))],collapse = "\n"))
+ggplot(data_position)+
+  theme_bw(base_family = "SimSun")+
+  geom_bar(aes(x=reorder(位置,max),y=max),stat = "identity",fill=c(rep("grey",3),"gold"))+
+  geom_text(aes(x=位置,y=max,label=name),family="SimSun",size=2.5,position = position_stack(vjust = 0.5))+
+  geom_text(aes(x=位置,y=max,label=paste0(max,"万英镑"),vjust=-0.5),family="SimSun",size=2.5)+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("球员位置")+
+  ylab("最高身价（单位：万英镑）")
+
+```
+```{r}
+data_soccer2$射门=as.numeric(data_soccer2$射门)
+ggplot(data_soccer2)+
+  geom_boxplot(aes(x=reorder(位置,X=射门),y=射门),varwidth = T,fill=c(rep("grey",3),"gold"))+
+  #geom_jitter(aes(x=位置,y=身价),width =0.2,shape = 21,size=0.5)+
+  scale_y_log10()+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("球员位置")+
+  ylab("身价（单位：万英镑）")
+data_soccer$评分=as.numeric(data_soccer$评分)
+
+data_soccer$`进球(点)`=as.numeric(data_soccer$`进球(点)`)
+ggplot(data_soccer)+
+  geom_point(aes(x=`进球(点)`,y=身价))
+unique(data_soccer$国籍)
+summary(as.numeric(data_soccer$最佳))
+summary(as.Date(data_soccer$生日))
+summary(as.numeric(data_soccer$出场时间))
+View(data_soccer$`出场(替补)`)
+
+
+ggplot(data_soccer)+
+  geom_boxplot(aes(x=惯用脚,y=身价))+
+  scale_y_log10()+
+  theme_bw(base_family = "SimSun")
+```
+
+```{r}
+data_foot=data_soccer[which(is.na(data_soccer$惯用脚)==F),]
+ggplot(data_foot)+
+  geom_boxplot(aes(x=reorder(惯用脚,身价),y=身价),fill=c(rep("grey",2),"gold"),varwidth = T)+
+  scale_y_log10()+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("惯用脚")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))
+
+data_foot_s=data_foot%>%group_by(惯用脚)%>%summarise(mean=mean(身价,na.rm = T))
+ggplot(data_foot_s)+
+  geom_bar(aes(x=reorder(惯用脚,mean),y=mean),stat = "identity",fill=c(rep("grey",2),rep("gold",1)))+
+  geom_text(aes(x=惯用脚,y=mean,label=round(mean,0),vjust=-0.5),size=3)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  xlab("惯用脚")+
+  ylab("身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,7,1,12),'lines'))
+
+```
+
+
+```{r}
+data_com=data_ability[,2:25]
+
+data_com=apply(data_com, 2, function(x) log10(x+1))
+data_com_r=cor(data_com)
+fa_fit=fa(data_com_r,nfactors = 2,rotate = "varimax",fm="pa")
+
+fa.parallel(data_com_r, n.obs = 112, fa = "both", n.iter = 100)
+
+data_ability$PCA1=round(as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,1])),0)
+
+data_ability$PCA2=round(as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,2])),0)
+
+write.csv(round(fa_fit$loadings,2),"~/Desktop/fa_fit.csv",fileEncoding = "GBK")
+
+(10.96145530+3.80503291)/sum(eigen(data_com_r)$values)
+```
+
+```{r}
+ggplot(data_ability)+
+  geom_boxplot(aes(x=factor(PCA1),y=身价),fill=c(rep("grey",20),rep("gold",3)),varwidth = T)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("主成分1得分")+
+  ylab("身价（单位：万英镑）")
+
+ggplot(data_ability)+
+  geom_boxplot(aes(x=factor(PCA2),y=身价),fill=c(rep("grey",18),rep("gold",3)),varwidth = T)+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlab("主成分2得分")+
+  ylab("身价（单位：万英镑）")
+
+```
+```{r}
+data_pca1=data_ability%>%group_by(PCA1)%>%summarise(mean=mean(身价,na.rm = T))
+data_pca2=data_ability%>%group_by(PCA2)%>%summarise(mean=mean(身价,na.rm = T))
+ggplot(data_pca1)+
+  geom_bar(aes(x=factor(PCA1),y=mean),fill=c(rep("grey",20),rep("gold",3)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  xlab("主成分1得分")+
+  ylab("平均身价（单位：万英镑）")+
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+ggplot(data_pca2)+
+  geom_bar(aes(x=factor(PCA2),y=mean),fill=c(rep("grey",18),rep("gold",3)),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  xlab("主成分2得分")+
+  ylab("平均身价（单位：万英镑）")
+```
+
+```{r}
+data_soccer$ `年龄` = data_soccer$Age
+data_soccer$Year[data_soccer$Year>5] = 5
+data_soccer$ `合同剩余时间` = data_soccer$Year
+data_ability$身价 = NULL
+data_ability$PCA1=as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,1]))
+data_ability$PCA2=as.matrix((data_com))%*%(as.vector(fa_fit$loadings[,2]))
+data_ability2 = select(data_ability,"球员","PCA1","PCA2","进球(点)","助攻")
+data_soccer2 = select(data_soccer, "球员","惯用脚","是否为欧盟","年龄","合同剩余时间","位置","联赛","身价")
+data_lm = merge(data_ability2,data_soccer2,by="球员",all.x = F,all.y = F)
+data_lm = data_lm[which(data_lm$年龄<50),]
+data_lm = unique(data_lm)
+data_lm = na.omit(data_lm)
+```
+
+```{r}
+#fit_lm = lm(log(身价+1)~.,data_lm[,-1])
+fit_lm = lm(log(身价+1)~PCA1+I(PCA1^2)+I(PCA1^3)+PCA2+I(PCA2^2)+惯用脚+是否为欧盟+年龄+I(年龄^2)+I(年龄^3)+合同剩余时间+位置+联赛+`进球(点)`+助攻,data_lm[,-1])
+fit_lm0 = summary(fit_lm)
+fit_AIC = step(fit_lm)
+summary(fit_AIC)
+#data_lm$预测身价 = predict(fit_AIC)
+data_lm$pre = exp(predict(fit_lm))
+#data_lm$upr = exp(predict(fit_lm)+3*sd(fit_lm$residuals))
+plot(fit_lm)
+plot(fit_AIC)
+
+data_lm$deta = data_lm$pre-data_lm$身价
+```
+
+```{r}
+high = data_lm[data_lm$身价>2000,]
+high = high[order(high$per,decreasing = T),][1:50,]
+write.csv(high,"~/Desktop/人才计划/high_list.csv",fileEncoding = "GBK",row.names = F)
+```
+```{r}
+low = data_lm[data_lm$身价>2000,]
+low = low[order(low$per,decreasing = F),][1:50,]
+write.csv(low,"~/Desktop/人才计划/low_list.csv",fileEncoding = "GBK",row.names = F)
+```
+
+
+
+
+

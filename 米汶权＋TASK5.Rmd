@@ -1,0 +1,580 @@
+---
+title: "米汶权＋TASK5"
+author: "Venture"
+date: "2019/7/28"
+output: html_document
+---
+
+# 加载所需要的包并读入数据
+```{r}
+rm(list = ls())   
+library(broom)
+library(stringr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+# 读入数据并命名为fin_data
+fin_data = read.csv("~/Desktop/人才计划/数据.csv", header = T, stringsAsFactors = FALSE)
+#取消科学计数法
+options(scipen = 100)
+```
+
+###任务一
+1.1 提取薪资水平
+数据集中变量X6表示薪资区间，请提取区间中点作为薪资水平，另存为变量wage，对于“面议”设置为12000元，对于其他仅有上界或下界的描述（如“7000元以上”）则设置为相应界限。
+根据薪资水平，对原始数据进行清洗，删除月薪大于40000、低于3000的观测。
+```{r}
+###提取工资的函数
+fun_wage = function(x){
+  if(x == "面议"){#面议，工资12000
+    wage = 12000
+  }else if (!is.na(str_extract(x,"-"))){#提取中间点
+    wage1 = as.numeric(str_split(x, "-")[[1]][1])
+    wage2 = as.numeric(str_split(x, "-")[[1]][2])
+    wage=0.5*(wage1+wage2)
+  }else{#提取xxx以上，以下
+    wage=gsub("\\D", "", as.character(x)) %>% 
+    as.numeric()
+  }
+  return(wage)
+}
+fin_data$wage = fin_data$X6%>%
+  lapply(fun_wage) %>% unlist() ###提取工资
+fin_data=fin_data[which(fin_data$wage <= 40000 & fin_data$wage >= 3000),]#筛选工资在3000-40000的
+
+
+```
+
+#1.2 岗位分类
+下面我们要对传统金融与金融科技的岗位进行区分，数据集中X3为职位名称，请把名称中包含“数据”、“IT”、“量化”及“工程师”字眼的职位名称归为金融科技岗位，其他作为传统金融岗位。在数据集中增加变量is_tech，对于金融科技岗位is_tech=1，传统金融岗位is_tech=0。
+
+```{r}
+###对岗位进行分类
+fin_data$is_tech = 0
+fin_data[str_detect(fin_data$X3,"数据|IT|量化|工程师"),]$is_tech = 1
+```
+
+#1.3 公司性质
+从职位简介（变量X7）中提取公司性质信息，并命名为company_type，并留下“民营”、“国企”、“合资”、“股份制企业”、“上市公司五个类别”，其他类别归为“其他”。
+```{r}
+###对公司性质进行分类
+fin_data$company_type = "其他"
+fin_data[str_detect(fin_data$X7,"公司性质：民营"),]$company_type = "民营"
+fin_data[str_detect(fin_data$X7,"公司性质：国企"),]$company_type = "国企"
+fin_data[str_detect(fin_data$X7,"公司性质：合资"),]$company_type = "合资"
+fin_data[str_detect(fin_data$X7,"公司性质：股份制企业"),]$company_type = "股份制企业"
+fin_data[str_detect(fin_data$X7,"公司性质：上市公司"),]$company_type = "上市公司"
+```
+
+#1.4 编程能力及证数要求
+从数据集的职位描述（变量X8）中查找是否存在对编程能力的要求（是否出现"JAVA","java","Java","Python","python","matlab",  "MATLAB","Linux","SQL","Oracle", "Hadoop","WEB","spring","c#","C#", "金融工程","编程","工程师","算法"关键词），生成一列新的变量coding，需要编程能力则记为1，否则记为0。
+
+从数据集的职位描述（变量X8）中查找是否存在对证数的要求（是否出现"CPA", "CFA", "FRM", "保险精算师", "注会", "证券从业", "基金从业", "法律", "司法考试", "司考"关键词），生成一列新的变量certificate，需要证数水平则记为1，否则记为0。
+
+```{r}
+###对是否需要编程能力进行分类
+fin_data$coding = 0
+fin_data[str_detect(fin_data$X8,"JAVA|java|Java|Python|python|matlab|MATLAB|Linux|SQL|Oracle|Hadoop|WEB|spring|c#|C#|金融工程|编程|工程师|算法"),]$coding = 1
+###对是否要求证书能力进行分类
+fin_data$certificate = 0
+fin_data[str_detect(fin_data$X8,"CPA|CFA|FRM|保险精算师|注会|证券从业|基金从业|法律|司法考试|司考"),]$certificate = 1
+```
+#1.5 学历信息
+从职位简介（变量X7）中提取学历要求信息，并命名为degree，并留下“本科”、“硕士”、“博士”及“大专”四个类别，其他类别归为“不限”。
+```{r}
+###提取招聘要求学历
+fin_data$degree = "不限"
+fin_data[str_detect(fin_data$X7,"学历：本科"),]$degree = "本科"
+fin_data[str_detect(fin_data$X7,"学历：硕士"),]$degree = "硕士"
+fin_data[str_detect(fin_data$X7,"学历：博士"),]$degree = "博士"
+fin_data[str_detect(fin_data$X7,"学历：大专"),]$degree = "大专"
+```
+
+#1.6 其他数据处理
+增加变量公司规模，命名为company_size，位于职位简介X7中，1000人以上为“大规模”；100-1000人为“中规模”；100人以下为“小规模”；其余为“未知”。
+增加变量工作年限，命名为work，位于职位描述X8中，将“无经验”和未涉及工作经验的观测统一归类到“不限”，其余类别保留。
+反馈率（X2），需转化为数值型变量并将其命名为reply。
+```{r}
+#提取公司规模的函数
+fun_size = function(x){
+  str_list0 = str_split(x,"[|]")[[1]]
+  size0 = str_list0[str_detect(str_list0,"公司规模")]
+  if(length(size0) == 1){
+    size1 = as.numeric(str_extract(size0, "[[:digit:]]+?(?=人)"))
+    if (size1>=1000){#1000人以上为大规模
+      size = "大规模"
+    }else if ( size1<1000 & size1>=100){#100-1000人为中规模
+      size = "中规模"
+    }else{#100以下为小规模
+      size = "小规模"
+    }
+  }else{
+    size = "未知"
+  }
+  return(size)
+}
+
+#提取公司规模
+fin_data$company_size = fin_data$X7%>%lapply(fun_size) %>% unlist() 
+
+```
+
+```{r}
+###提取工作经验要求的函数
+fun_work = function(x){
+  str_list0 = str_split(x,"[|]")[[1]]
+  work0 = str_list0[str_detect(str_list0,"经验")]
+  if(length(work0) == 1){#提取有经验要求的
+    work = substring(work0, 4)
+  }else{#提取无经验要求的
+    work = "不限"
+  }
+  return(work)
+}
+#提取工作经验要求
+fin_data$work = fin_data$X7%>%
+  lapply(fun_work) %>% unlist() 
+fin_data[which(fin_data$work == "无经验"),]$work = "不限"#将无经验变为不限
+
+```
+
+```{r}
+###提取反馈率的百分数，并转化为数值型
+fin_data$reply = fin_data$X2%>%
+  str_extract_all("\\d+")%>%
+  as.numeric()/100
+
+```
+
+#任务二
+#2.1 各城市两种岗位薪资均值对比
+数据集中X0为城市名称，请按照城市名称及岗位类型（传统金融or金融科技）计算岗位的薪资水平均值，并绘制柱状图，给出解读。
+```{r}
+###计算各个城市按照岗位类别分类的平均工资和岗位个数
+fin_data_city=fin_data%>%
+  group_by(X0,is_tech)%>%
+  summarise(meanwage=mean(wage,na.rm = T),#计算平均工资
+            countwage=length(wage))#计算岗位个数
+###绘制并列柱状图
+ggplot(fin_data_city)+
+  geom_bar(aes(x = reorder(X0,X = -meanwage,FUN = median),#将城市按照工资均值排序
+               y = meanwage/1000,
+               fill = factor(is_tech,
+                           levels = c(0,1),
+                           labels = c("传统金融","金融科技"))),
+           #is_tech对应传统金融和金融科技
+           stat = "identity",position = "dodge")+#position = "dodge"设置为并列柱状图
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "岗位类别")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("城市")+#设置横轴名称
+  ylab("薪资平均水平（千元）")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))#设置背景和坐标轴
+  
+```
+
+解读：从各个城市来看，上海，杭州，深圳三地的金融科技岗位工资明显高于传统金融岗位，而其余地区两种岗位类别工资相差无几。
+
+#2.2 各城市两种岗位数目比较
+绘制各城市两种岗位数目比较柱状图并给出解读，横轴为城市，城市按照岗位总数排列，纵轴为两类岗位个数的叠堆图，按照岗位分组
+
+```{r}
+#绘制按照岗位分组的各个城市岗位数量柱状图
+ggplot(fin_data_city)+
+  geom_bar(aes(x = reorder(X0,X = -countwage),#按照数量排序
+               y = countwage/1000,
+               fill = factor(is_tech,levels = c(0,1),
+                             labels = c("传统金融","金融科技"))),stat = "identity")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill = "岗位类别")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("城市")+#设置横轴名称
+  ylab("岗位个数（千个）")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))#设置背景和坐标轴
+
+```
+
+解读：在这些城市当中，由于金融科技岗位为新兴产业，传统金融的岗位数量均明显多于金融科技；成都市提供的总岗位数最多；而北京的金融科技岗位占比最高，明显高于其他城市。
+
+#2.3 绘制有编程要求和证数要求岗位所占比例
+横轴为岗位类别，按照编程和证数要求分组；纵轴为每种要求占该岗位类别的百分比
+```{r}
+#计算有编程要求和证数要求岗位所占比例
+fin_data_pos=fin_data%>%
+  group_by(is_tech)%>%
+  summarise(per_coding = mean(coding),#有编程要求比例
+            per_cer = mean(certificate))#证数要求岗位所占比例
+fin_data_pos$is_tech = c("传统金融","金融科技")
+data_pos = fin_data_pos
+data_pos[3:4,1] = data_pos[1:2,1]
+data_pos[3:4,2] = data_pos[1:2,3]
+data_pos$tag=c(rep("编程能力",2),rep("证书水平",2))
+#绘制图形
+ggplot(data_pos)+
+  geom_bar(aes(x = is_tech,
+               y = per_coding,
+               fill = factor(tag,levels = c("证书水平","编程能力"))),
+           stat = "identity",
+           position = "dodge")+
+  scale_y_continuous(breaks = seq(0,0.2,0.05),labels = paste0(seq(0,20,5),"%"))+#将y轴改为百分比
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  labs(fill="")+#隐藏图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#设置颜色
+  xlab("岗位类别")+#设置横轴名称
+  ylab("")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))#设置背景和坐标轴
+```
+
+解读：传统金融岗位对于证书水平要求较高，对于编程能力要求不高；相反，金融科技对于证书水平要求并不是那么高，而对于编程能力要求则相当高。
+
+#2.4 绘制不同年限工作经验对应薪酬水平的箱线图
+横轴为工作经验，按照岗位类别分组；纵轴为薪酬水平
+```{r}
+#设置标签wage0，将不限排在最后
+fin_data$wage0=fin_data$wage
+fin_data[which(fin_data$work == "不限"),]$wage0 = 0
+#绘制箱线图
+ggplot(fin_data)+
+  geom_boxplot(aes(x = reorder(work,X = -wage0),#按照wage0对work排序，“不限”排在最后
+                   y = wage/10000,
+                   fill = factor(is_tech,levels = c(0,1),labels = c("传统金融","金融科技"))),#设置is_tech标签
+               varwidth = T)+
+  labs(fill = "岗位类别")+#设置图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#填充颜色
+  xlab("岗位类别")+#设置横轴名称
+  ylab("岗位工资（万元）")+#设置纵轴名称
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))#设置背景和坐标轴
+
+```
+
+解读：对于不同工作经验的要求，工作经验越久，平均工资越高；绝大多数岗位要求的工作经验均在5年以下；金融科技岗位的薪资水平略微高于传统金融。
+
+#任务三：建模分析
+#3.1 回归模型、变量选择、模型诊断以及结果解读
+注意，这个任务是开放型的，要求你建立回归模型，研究薪资的影响因素。
+
+```{r}
+#设置默认选取最后一个水平作为虚拟变量的基准组
+options(contrasts = c("contr.SAS", "contr.helmert"))
+#将公司规模因子化，未知为基准组
+fin_data$company_size = factor(fin_data$company_size,levels = c("小规模","中规模","大规模","未知"))
+#将公司性质因子化，其他为基准组
+fin_data$company_type = factor(fin_data$company_type,levels = c("国企","合资","民营","上市公司","股份制企业","其他"))
+#将岗位类别因子化，传统金融为基准组
+fin_data$is_tech = factor(fin_data$is_tech,levels = c("0","1"),labels = c("金融科技","传统金融"))
+#将城市因子化，北京为基准组
+fin_data$X0 = factor(fin_data$X0,levels = c("成都","贵阳","杭州","济南","上海","深圳","沈阳","西安","北京"))
+#将学历因子化，不限为基准组
+fin_data$degree = factor(fin_data$degree,levels = c("大专","本科","硕士","博士","不限"))
+#将编程要求因子化，不要求为基准组
+fin_data$coding = factor(fin_data$coding,levels = c("0","1"),labels = c("要求","不要求"))
+#将证书水平因子化，不要求为基准组
+fin_data$certificate = factor(fin_data$certificate,levels = c("0","1"),labels = c("要求","不要求"))
+#将工作经验因子化，不限为基准组
+fin_data$work = factor(fin_data$work,levels = c("1年以下","1-3年","3-5年","5-10年","10年以上","不限"))
+
+#产生虚拟变量矩阵
+dummy_matrix = as.data.frame(model.matrix(~company_size+company_type+is_tech+X0+degree+coding+certificate+work, fin_data))[,-1]
+#反馈率reply的缺失值过多（36609个）故不将该变量加入回归模型中
+dummy_matrix$wage = fin_data$wage
+```
+
+#回归模型
+```{r}
+###线性回归
+lm.fit = lm(wage~.,dummy_matrix)
+```
+#变量选择
+```{r}
+#AIC变量选择
+lm.AIC=step(lm.fit)
+```
+#模型诊断
+```{r}
+#模型诊断图
+par(mfcol=c(2,2))#设置排版4x4
+plot(lm.AIC)#模型诊断
+```
+
+模型诊断：该模型的qq-plot不在一条直线附近，故有异方差和非正态的影响；考虑到wage的分布呈右偏分布，故考虑对wage做对数变换，再来进行下一步回归
+
+#对数线性回归
+```{r}
+###对工资进行对数变换
+lm.fit2=lm(log(wage)~.,dummy_matrix)
+```
+#变量选择
+```{r}
+lm.AIC2=step(lm.fit2)
+```
+#模型诊断
+```{r}
+par(mfcol=c(2,2))
+plot(lm.AIC2)
+```
+
+
+解读：进行变量选择后，qqplot基本位于一条直线上，故残差服从标准正态分布，符合线性回归的基本假定；模型的F统计量远小于0.05，故该模型显著；利用AIC进行变量选择后，删除了is_tech变量，AIC达到最小。接下来根据变量选择后的模型进行解读。
+
+
+```{r}
+lm_fit2_coe = as.data.frame(summary(lm.AIC2)$coefficients)[-1,]#去掉截距项
+lm_fit2_coe$sign = "显著"#判断是否显著
+lm_fit2_coe[which(lm_fit2_coe$`Pr(>|t|)`>0.05),]$sign = "不显著"
+```
+
+
+```{r, include = FALSE}
+rownames(lm_fit2_coe) = c("小规模","中规模","大规模","国企","合资","民营","上市公司","股份制企业","成都","贵阳","杭州","济南","上海","深圳","沈阳","西安","大专","本科","硕士","博士","编程要求","证书水平","1年以下","1-3年","3-5年","5-10年","10年以上")
+
+```
+
+```{r}
+#分析公司规模对于工资的影响
+ggplot(lm_fit2_coe[1:3,])+
+  geom_bar(aes(x = reorder(rownames(lm_fit2_coe[1:3,]),-Estimate),y = Estimate, fill = sign),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("DimGrey","gold"))+#设置颜色
+  xlab("公司规模")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+#设置图片大小
+  geom_text(aes(x = reorder(rownames(lm_fit2_coe[1:3,]),-Estimate), 
+                y = Estimate,
+                label = round(Estimate,2)), 
+            size=3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+```
+
+解读：从公司规模来看，规模越大，公司平均薪资越高，大规模公司的平均工资比基准组未知高6.1%,比中规模公司高4.0%，比小规模高8.5%
+
+```{r}
+#分析公司类型对工资的影响
+ggplot(lm_fit2_coe[4:8,])+
+  geom_bar(aes(x = reorder(rownames(lm_fit2_coe[4:8,]),-Estimate),y = Estimate, fill = factor(sign, levels = c("不显著","显著"), labels = c("不显著","显著"))),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold"))+#设置颜色
+  xlab("公司类型")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+#设置图片大小
+  geom_text(aes(x = reorder(rownames(lm_fit2_coe[4:8,]),-Estimate),
+                y = Estimate,
+                label = round(Estimate,2)),
+            size = 3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+```
+
+解读：从公司类型来看，五类公司均比基准组其他类显著高。股份制企业平均薪资水平最高，比上市公司高2.3%，比国企高3.5%，比合资高4.2%，比民营高4.7%。
+
+```{r}
+#分析城市对薪资水平的影响
+ggplot(lm_fit2_coe[9:16,])+
+  geom_bar(aes(x = reorder(rownames(lm_fit2_coe[9:16,]),-Estimate),y = Estimate, fill = sign),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold"))+#设置颜色
+  xlab("城市")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(lm_fit2_coe[9:16,]),-Estimate),
+                y = Estimate,
+                label=round(Estimate,2)),
+            size=3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+```
+
+解读：以北京市作为基准组，其余城市薪资水平都显著低于北京；北上深杭仍然是金融行业薪资水平的第一梯队；在北京之外的其余城市中，上海薪资水平最高，仅比北京低2个百分点，而沈阳最低，比北京低了43.1%
+
+```{r}
+#分析学历对薪资水平的影响
+ggplot(lm_fit2_coe[17:20,])+
+  geom_bar(aes(x = reorder(rownames(lm_fit2_coe[17:20,]),-Estimate),y = Estimate, fill = sign),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold"))+#设置颜色
+  xlab("学历")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(lm_fit2_coe[17:20,]),-Estimate),
+                y = Estimate,
+                label=round(Estimate,2)),
+            size=3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+```
+
+解读：学历要求越高，自然对能力要求越强，薪资水平也越高；博士平均薪资水平比硕士高36%，比本科54%，比大专高57%。
+
+
+```{r}
+#分析能力要求对于薪资水平的影响
+ggplot(lm_fit2_coe[21:22,])+
+  geom_bar(aes(x = reorder(rownames(lm_fit2_coe[21:22,]),-Estimate),y = Estimate, fill = sign),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold"))+#设置颜色
+  xlab("能力要求")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(lm_fit2_coe[21:22,]),-Estimate),
+                y = Estimate,
+                label = round(Estimate,2)),
+            size = 3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+```
+
+
+解读：金融行业对于证书要求较高，反而对于编程要求较低，有证书要求的比无证书要求的高7.9%，而有编程要求的却比无要求的低8.6%。
+
+```{r}
+#分析工作经验对薪资水平的影响
+ggplot(lm_fit2_coe[23:27,])+
+  geom_bar(aes(x = reorder(rownames(lm_fit2_coe[23:27,]),-Estimate),y = Estimate, fill = sign),stat = "identity")+
+  theme_bw(base_family = "SimSun")+
+  labs(fill="是否显著")+#隐藏图例
+  scale_fill_manual(values = c("gold"))+#设置颜色
+  xlab("工作经验")+#设置横轴名称
+  ylab("参数估计值")+#设置纵轴名称
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+#设置背景和坐标轴
+  theme(plot.margin=unit(c(1,2,1,8),'lines'))+
+  geom_text(aes(x = reorder(rownames(lm_fit2_coe[23:27,]),-Estimate),
+                y = Estimate,
+                label=round(Estimate,2)),
+            size = 3,
+            position = position_stack(vjust = 0.5))#添加数字标签
+
+```
+
+解读：对于工作经验要求越久的工资，薪资水平越高。10年以上工作经验要求的岗位比5-10年的高26%，比3-5年的高51%，比1-2年的高81%，1年以下的高94%
+
+
+
+任务四：聚类分析（选做）
+此任务中我们希望对所有岗位进行聚类分析
+在原有变量基础上增加变量，细化编程能力和证数要求这两个变量，从数据集的职位描述（变量X8）中查找是否存在对编程能力（考虑下列编程语言："c","Python","Matlab","C++", "Linux","SQL","R","Hadoop","spring","C#"）的要求，针对每一种语言生成一个0-1变量， 需要该项编程能力则记为1，否则记为0。在证数能力要求上，考虑CPA、CFA、FRM、SOA及司法考试这五项考试，并生成对应的0-1变量。注 应考虑字母大小写及证数名称的中文及简写等形式
+
+将上述用于回归分析的变量中的所有定性变量转化为one-hot encoding形式（提示 使用函数model.matrix），并与上面任务中的变量合并，生成用于聚类分析的矩阵，使用kmeans进行聚类，选择适合的类别数，并对聚类结果进行可视化，绘制分类别薪资水平密度分布图。
+
+
+```{r}
+#将大写字母转化为小写字字母
+fin_data$X8 = str_to_lower(fin_data$X8)
+#提取有C语言要求的岗位
+fin_data$c = 0
+fin_data[str_detect(fin_data$X8,"c语言"),]$c = 1
+#提取有python要求的岗位
+fin_data$Python = 0
+fin_data[str_detect(fin_data$X8,"python"),]$Python = 1
+#提取有matlab要求的岗位
+fin_data$Matlab = 0
+fin_data[str_detect(fin_data$X8,"matlab"),]$Matlab = 1
+#提取有C++要求的岗位
+fin_data$cpp = 0
+fin_data[str_detect(fin_data$X8,"c++"),]$cpp = 1
+#提取有linux要求的岗位
+fin_data$Linux = 0
+fin_data[str_detect(fin_data$X8,"linux"),]$Linux = 1
+#提取有SQL要求的岗位
+fin_data$SQL = 0
+fin_data[str_detect(fin_data$X8,"sql"),]$SQL = 1
+#提取有R语言要求的岗位
+fin_data$R = 0
+fin_data[str_detect(fin_data$X8,"r"),]$R = 1
+#提取有Hadoop要求的岗位
+fin_data$Hadoop = 0
+fin_data[str_detect(fin_data$X8,"hadoop"),]$Hadoop = 1
+#提取有spring要求的岗位
+fin_data$spring = 0
+fin_data[str_detect(fin_data$X8,"spring"),]$spring = 1
+#提取有C#要求的岗位
+fin_data$C2 = 0
+fin_data[str_detect(fin_data$X8,"c#"),]$C2 = 1
+#提取有CPA要求的岗位
+fin_data$CPA = 0
+fin_data[str_detect(fin_data$X8,"cpa"),]$CPA = 1
+#提取有CFA要求的岗位
+fin_data$CFA = 0
+fin_data[str_detect(fin_data$X8,"cfa"),]$CFA = 1
+#提取有FRM要求的岗位
+fin_data$FRM = 0
+fin_data[str_detect(fin_data$X8,"frm"),]$FRM = 1
+#提取有SOA要求的岗位
+fin_data$SOA = 0
+fin_data[str_detect(fin_data$X8,"soa"),]$SOA = 1
+#提取有司法考试要求的岗位
+fin_data$law = 0
+fin_data[str_detect(fin_data$X8,"司法考试"),]$law = 1
+fin_data$wage0 = NULL
+```
+
+
+```{r}
+#构造虚拟变量的矩阵
+dummy_new = cbind(dummy_matrix,fin_data[,20:33])
+dummy_new = dummy_new[,-30]
+#设定随机种子
+set.seed(1234)
+#kmeans均值聚类
+kmeans.fit = kmeans(dummy_new,2)
+#将聚类结果并入矩阵
+dummy_matrix$cluster=kmeans.fit$cluster
+dummy_matrix$wage = fin_data$wage
+#绘制两个类别薪资水平的密度曲线图
+ggplot(dummy_matrix)+
+  geom_line(aes(x = wage/10000, 
+                col = factor(cluster)), 
+            stat = "density",adjust=5)+
+  labs(col = "聚类组别")+
+  #geom_density(aes(x = wage, col = factor(cluster)),stat = "density",adjust=5)+
+  scale_color_manual(values = c("DimGrey","gold"))+
+  ylab("密度")+
+  xlab("薪资水平（万元）")+
+  theme_bw(base_family = "SimSun")+#背景设置为白色，字体为宋体
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))#设置背景和坐标轴
+```
+
+解读：选取中心数为2来对岗位进行均值聚类。类别1的工资水平更高，类别2的薪资水平更低
+
